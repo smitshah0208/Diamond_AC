@@ -1,8 +1,8 @@
 <?php
+// File: functions/search_invoices.php
 error_reporting(0);
 ini_set('display_errors', 0);
-
-if (ob_get_level()) ob_clean();
+if (ob_get_level()) ob_clean(); // Prevent stray spaces
 header('Content-Type: application/json; charset=utf-8');
 
 include "../config/db.php";
@@ -15,12 +15,11 @@ if (strlen($query) < 2) {
 }
 
 try {
-    // Search invoices by invoice_num
-    $stmt = $conn->prepare("SELECT invoice_num, party_name, net_amount, txn_date 
+    // Make sure we select broker_name
+    $stmt = $conn->prepare("SELECT invoice_num, party_name, broker_name, net_amount 
                             FROM invoice_txn 
                             WHERE invoice_num LIKE ? 
-                            ORDER BY txn_id DESC 
-                            LIMIT 20");
+                            ORDER BY txn_id DESC LIMIT 20");
     $searchTerm = $query . '%';
     $stmt->bind_param("s", $searchTerm);
     $stmt->execute();
@@ -31,17 +30,17 @@ try {
         $invoices[] = [
             'invoice_num' => $row['invoice_num'],
             'party_name' => $row['party_name'],
-            'net_amount' => $row['net_amount'],
-            'txn_date' => $row['txn_date']
+            // Ensure broker_name is not null
+            'broker_name' => $row['broker_name'] ? $row['broker_name'] : '', 
+            'net_amount' => $row['net_amount']
         ];
     }
     
     echo json_encode($invoices);
     $stmt->close();
-    $conn->close();
     
 } catch (Exception $e) {
     echo json_encode([]);
 }
-exit;
+$conn->close();
 ?>

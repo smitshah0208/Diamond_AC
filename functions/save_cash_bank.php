@@ -10,18 +10,26 @@ if (!$data) { echo json_encode(['success'=>false, 'message'=>'Invalid data']); e
 $conn->begin_transaction();
 
 try {
+    // Added related_name
     $sql = "INSERT INTO cash_bank_entries 
-            (txn_date, account_type, invoice_num, description, conversion_rate, dr_usd, cr_usd, dr_inr, cr_inr) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            (txn_date, account_type, invoice_num, party_or_broker, related_name, description, conversion_rate, dr_usd, cr_usd, dr_inr, cr_inr) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             
     $stmt = $conn->prepare($sql);
     
-    // Handle optional invoice number
     $invNum = !empty($data['invoice_num']) ? $data['invoice_num'] : NULL;
+    $pob = !empty($data['party_or_broker']) ? $data['party_or_broker'] : NULL;
+    $relName = !empty($data['related_name']) ? $data['related_name'] : NULL; // New
     $rate = floatval($data['conversion_rate'] ?? 0);
     
-    $stmt->bind_param("ssssddddd", 
-        $data['txn_date'], $data['account_type'], $invNum, $data['description'],
+    // Bind: s s s s s s d d d d d (11 params)
+    $stmt->bind_param("ssssssddddd", 
+        $data['txn_date'], 
+        $data['account_type'], 
+        $invNum, 
+        $pob, 
+        $relName, // New
+        $data['description'],
         $rate, $data['dr_usd'], $data['cr_usd'], $data['dr_inr'], $data['cr_inr']
     );
 

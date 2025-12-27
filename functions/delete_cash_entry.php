@@ -5,7 +5,10 @@ header('Content-Type: application/json');
 
 $data = json_decode(file_get_contents('php://input'), true);
 
-if (empty($data['id'])) { echo json_encode(['success'=>false, 'message'=>'ID missing']); exit; }
+if (empty($data['id'])) { 
+    echo json_encode(['success'=>false, 'message'=>'ID missing']); 
+    exit; 
+}
 
 $stmt = $conn->prepare("DELETE FROM cash_bank_entries WHERE id = ?");
 $stmt->bind_param("i", $data['id']);

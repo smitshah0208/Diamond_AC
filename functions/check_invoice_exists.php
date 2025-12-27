@@ -1,13 +1,8 @@
 <?php
-// File: functions/check_invoice_exists.php -- cashbank 
-
-// Disable error display to screen (prevents breaking JSON)
-error_reporting(E_ALL);
+// File: functions/check_invoice_exists.php
+error_reporting(0);
 ini_set('display_errors', 0);
-
-// Clear any previous output (newlines/spaces from includes)
-if (ob_get_level()) ob_clean();
-
+if (ob_get_level()) ob_clean(); // Crucial to prevent JSON errors
 header('Content-Type: application/json; charset=utf-8');
 
 include "../config/db.php";
@@ -20,12 +15,7 @@ if ($inv === '') {
 }
 
 try {
-    // Check if invoice exists in invoice_txn table
     $stmt = $conn->prepare("SELECT txn_id FROM invoice_txn WHERE invoice_num = ? LIMIT 1");
-    if (!$stmt) {
-        throw new Exception($conn->error);
-    }
-    
     $stmt->bind_param("s", $inv);
     $stmt->execute();
     $stmt->store_result();
@@ -35,13 +25,9 @@ try {
     } else {
         echo json_encode(['exists' => false]);
     }
-    
     $stmt->close();
-
 } catch (Exception $e) {
-    // If error, assume false but log it (optional)
-    echo json_encode(['exists' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['exists' => false]);
 }
-
 $conn->close();
 ?>
