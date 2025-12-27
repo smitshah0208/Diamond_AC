@@ -14,6 +14,3 @@ if (!$conn) {
     // echo "Connected successfully";
 }
 ?>
-
-
-<!-- https://claude.ai/chat/e4a65f31-bd16-41d3-8ba7-ff29b0de7ed0 -->
