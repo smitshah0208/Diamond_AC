@@ -10,9 +10,8 @@ if (strlen($query) < 1) {
 }
 
 try {
-    // Search parties from your database
-    // Adjust the table name and columns according to your actual party table
-    $stmt = $conn->prepare("SELECT id, name, contact FROM parties WHERE name LIKE ? LIMIT 10");
+    // Search parties - case-insensitive search using LOWER()
+    $stmt = $conn->prepare("SELECT id, name FROM parties WHERE LOWER(name) LIKE LOWER(?) ORDER BY name ASC LIMIT 15");
     $searchTerm = $query . '%';
     $stmt->bind_param("s", $searchTerm);
     $stmt->execute();
@@ -23,7 +22,7 @@ try {
         $parties[] = [
             'id' => $row['id'],
             'name' => $row['name'],
-            'info' => isset($row['contact']) ? $row['contact'] : ''
+            'info' => ''
         ];
     }
     
@@ -36,4 +35,4 @@ try {
 }
 
 $conn->close();
-?>
+?>  

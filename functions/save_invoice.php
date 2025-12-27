@@ -1,167 +1,200 @@
 <?php
-// Disable error display, only log errors
+// File: functions/save_invoice.php
+
+// 1. Setup Error Handling
 error_reporting(E_ALL);
-ini_set('display_errors', 0);
+ini_set('display_errors', 0); // Don't echo errors to client, send JSON instead
 ini_set('log_errors', 1);
+ini_set('error_log', 'debug_log.txt'); // Errors will go to this file
 
-// Set JSON header
-header('Content-Type: application/json');
-
-// Include database connection
-include "../config/db.php";
-
-// Get JSON data
-$rawData = file_get_contents('php://input');
-$data = json_decode($rawData, true);
-
-if (!$data) {
-    echo json_encode([
-        'success' => false,
-        'message' => 'Invalid JSON data received'
-    ]);
-    exit;
-}
+// 2. Prepare JSON Response
+if (ob_get_level()) ob_clean();
+header('Content-Type: application/json; charset=utf-8');
 
 try {
-    // Start transaction
+    // 3. Include Database
+    if (!file_exists("../config/db.php")) {
+        throw new Exception("Database config file not found at ../config/db.php");
+    }
+    include "../config/db.php";
+
+    // 4. Get Data
+    $rawData = file_get_contents('php://input');
+    $data = json_decode($rawData, true);
+
+    if (!$data) {
+        throw new Exception("No JSON data received or invalid JSON");
+    }
+
+    // 5. Start Transaction
     $conn->begin_transaction();
-    
-    // ========== Auto-Insert Party if not exists ==========
-    $partyName = trim($data['party_name']);
-    if (!empty($partyName)) {
-        // Check if party exists
-        $stmt = $conn->prepare("SELECT id FROM parties WHERE name = ? LIMIT 1");
-        $stmt->bind_param("s", $partyName);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        if ($result->num_rows === 0) {
-            // Party doesn't exist, insert it
-            $insertStmt = $conn->prepare("INSERT INTO parties (name) VALUES (?)");
-            $insertStmt->bind_param("s", $partyName);
-            if (!$insertStmt->execute()) {
-                throw new Exception("Error inserting party: " . $insertStmt->error);
-            }
-            $insertStmt->close();
-        }
+
+    // ---------------------------------------------------------
+    // A. Handle Party (Auto-Insert)
+    // ---------------------------------------------------------
+    $partyName = trim($data['party_name'] ?? '');
+    if (empty($partyName)) throw new Exception("Party name is required");
+
+    $stmt = $conn->prepare("SELECT id FROM parties WHERE name = ? LIMIT 1");
+    $stmt->bind_param("s", $partyName);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    if ($res->num_rows === 0) {
+        $stmt->close();
+        $ins = $conn->prepare("INSERT INTO parties (name) VALUES (?)");
+        $ins->bind_param("s", $partyName);
+        $ins->execute();
+        $ins->close();
+    } else {
         $stmt->close();
     }
-    
-    // ========== Auto-Insert Broker if not exists ==========
-    $brokerName = trim($data['broker_name']);
+
+    // ---------------------------------------------------------
+    // B. Handle Broker (Auto-Insert)
+    // ---------------------------------------------------------
+    $brokerName = trim($data['broker_name'] ?? '');
     if (!empty($brokerName)) {
-        // Check if broker exists
         $stmt = $conn->prepare("SELECT id FROM brokers WHERE name = ? LIMIT 1");
         $stmt->bind_param("s", $brokerName);
         $stmt->execute();
-        $result = $stmt->get_result();
-        
-        if ($result->num_rows === 0) {
-            // Broker doesn't exist, insert it
-            $insertStmt = $conn->prepare("INSERT INTO brokers (name, rate) VALUES (?, 1.00)");
-            $insertStmt->bind_param("s", $brokerName);
-            if (!$insertStmt->execute()) {
-                throw new Exception("Error inserting broker: " . $insertStmt->error);
-            }
-            $insertStmt->close();
+        $res = $stmt->get_result();
+        if ($res->num_rows === 0) {
+            $stmt->close();
+            $ins = $conn->prepare("INSERT INTO brokers (name) VALUES (?)");
+            $ins->bind_param("s", $brokerName);
+            $ins->execute();
+            $ins->close();
+        } else {
+            $stmt->close();
         }
-        $stmt->close();
     }
+
+    // ---------------------------------------------------------
+    // C. Insert Invoice Header (Check SQL Columns!)
+    // ---------------------------------------------------------
+    // IMPORTANT: Make sure you ran the ALTER TABLE command to add cal1, cal2, cal3
     
-    // ========== Insert Invoice ==========
-    $stmt = $conn->prepare("INSERT INTO invoice_txn 
-        (txn_type, invoice_no, txn_date, party_name, broker_name, description, 
-         brokerage_amt, gross_amt, tax, net_amount, party_status, broker_status, credit_days, due_date) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    
+    // Check if invoice number already exists
+    $check = $conn->prepare("SELECT txn_id FROM invoice_txn WHERE invoice_num = ?");
+    $check->bind_param("s", $data['invoice_num']);
+    $check->execute();
+    if ($check->get_result()->num_rows > 0) {
+        throw new Exception("Invoice Number " . $data['invoice_num'] . " already exists.");
+    }
+    $check->close();
+
+    $sql = "INSERT INTO invoice_txn 
+            (txn_type, invoice_num, txn_date, party_name, broker_name, notes, 
+             credit_days, due_date, cal1, cal2, cal3, 
+             brokerage_amt, gross_amt, tax, net_amount, party_status, broker_status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            
+    $stmt = $conn->prepare($sql);
     if (!$stmt) {
-        throw new Exception("Prepare failed: " . $conn->error);
+        throw new Exception("Prepare failed: " . $conn->error . ". Did you add cal1/cal2/cal3 columns?");
     }
+
+    // Prepare variables for binding (casting to correct types)
+    $txn_type = $data['txn_type'];
+    $invoice_num = $data['invoice_num'];
+    $txn_date = $data['txn_date'];
+    $notes = $data['notes'] ?? '';
+    $credit_days = intval($data['credit_days'] ?? 0);
+    $due_date = $data['due_date'];
     
-    $stmt->bind_param("ssssssdddiiiis",
-        $data['txn_type'],
-        $data['invoice_no'],
-        $data['txn_date'],
+    // Floats/Doubles
+    $cal1 = floatval($data['cal1'] ?? 0);
+    $cal2 = floatval($data['cal2'] ?? 0);
+    $cal3 = floatval($data['cal3'] ?? 0);
+    $brokerage_amt = floatval($data['brokerage_amt'] ?? 0);
+    $gross_amt = floatval($data['gross_amt'] ?? 0);
+    $tax = floatval($data['tax'] ?? 0);
+    $net_amount = floatval($data['net_amount'] ?? 0);
+    
+    // Statuses
+    $party_status = intval($data['party_status'] ?? 0);
+    $broker_status = intval($data['broker_status'] ?? 0);
+
+    // Bind: s=string, i=int, d=double
+    // String map: s s s s s s i s d d d d d d d i i (17 params)
+    $stmt->bind_param("ssssssisddddddiii",
+        $txn_type,
+        $invoice_num,
+        $txn_date,
         $partyName,
         $brokerName,
-        $data['description'],
-        $data['brokerage_amt'],
-        $data['gross_amt'],
-        $data['tax'],
-        $data['net_amount'],
-        $data['party_status'],
-        $data['broker_status'],
-        $data['credit_days'],
-        $data['due_date']
+        $notes,
+        $credit_days,
+        $due_date,
+        $cal1,
+        $cal2,
+        $cal3,
+        $brokerage_amt,
+        $gross_amt,
+        $tax,
+        $net_amount,
+        $party_status,
+        $broker_status
     );
-    
+
     if (!$stmt->execute()) {
-        throw new Exception("Error saving invoice: " . $stmt->error);
+        throw new Exception("Execute failed: " . $stmt->error);
     }
-    
-    $invoice_no = $data['invoice_no'];
     $stmt->close();
-    
-    // ========== Save Invoice Items ==========
+
+    // ---------------------------------------------------------
+    // D. Insert Invoice Items
+    // ---------------------------------------------------------
     if (!empty($data['items']) && is_array($data['items'])) {
-        $stmt = $conn->prepare("INSERT INTO invoice_items 
-            (invoice_id, currency, qty, rate_usd, rate_inr, conv_rate, base_amount_usd, base_amount_inr, adjusted_amount_usd, adjusted_amount_inr) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        
-        if (!$stmt) {
-            throw new Exception("Prepare items failed: " . $conn->error);
-        }
+        $sqlItems = "INSERT INTO invoice_items 
+            (invoice_id, currency, qty, rate_usd, rate_inr, conv_rate, 
+             base_amount_usd, base_amount_inr, adjusted_amount_usd, adjusted_amount_inr) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            
+        $stmt = $conn->prepare($sqlItems);
         
         foreach ($data['items'] as $item) {
-            $convRate = isset($item['convRate']) ? floatval($item['convRate']) : 0;
-            $baseUsd = isset($item['baseUsd']) ? floatval($item['baseUsd']) : 0;
-            $adjustedUsd = isset($item['adjustedUsd']) ? floatval($item['adjustedUsd']) : 0;
-            
+            $currency = $item['cur'];
+            $qty = floatval($item['qty']);
+            $rateUsd = floatval($item['rateUsd']);
+            $rateInr = floatval($item['rateInr']);
+            $convRate = floatval($item['convRate'] ?? 0);
+            $baseUsd = floatval($item['baseUsd'] ?? 0);
+            $baseInr = floatval($item['baseInr']);
+            $adjUsd = floatval($item['adjustedUsd'] ?? 0);
+            $adjInr = floatval($item['adjustedInr']);
+
             $stmt->bind_param("ssdddddddd",
-                $invoice_no,
-                $item['cur'],
-                $item['qty'],
-                $item['rateUsd'],
-                $item['rateInr'],
+                $invoice_num,
+                $currency,
+                $qty,
+                $rateUsd,
+                $rateInr,
                 $convRate,
                 $baseUsd,
-                $item['baseInr'],
-                $adjustedUsd,
-                $item['adjustedInr']
+                $baseInr,
+                $adjUsd,
+                $adjInr
             );
             
             if (!$stmt->execute()) {
-                throw new Exception("Error saving invoice items: " . $stmt->error);
+                throw new Exception("Item Insert Failed: " . $stmt->error);
             }
         }
         $stmt->close();
     }
-    
-    // Commit transaction
+
     $conn->commit();
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'Invoice saved successfully',
-        'invoice_no' => $invoice_no
-    ]);
-    
+    echo json_encode(['success' => true, 'message' => 'Saved successfully']);
+
 } catch (Exception $e) {
-    // Rollback on error
-    if (isset($conn)) {
-        $conn->rollback();
-    }
-    
-    // Log error
-    error_log("Save invoice error: " . $e->getMessage());
-    
+    if (isset($conn)) $conn->rollback();
+    error_log("Save Error: " . $e->getMessage()); // Log detailed error to file
     echo json_encode([
-        'success' => false,
+        'success' => false, 
         'message' => $e->getMessage()
     ]);
 }
 
-if (isset($conn)) {
-    $conn->close();
-}
+if (isset($conn)) $conn->close();
 ?>

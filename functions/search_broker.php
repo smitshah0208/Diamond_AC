@@ -10,9 +10,8 @@ if (strlen($query) < 1) {
 }
 
 try {
-    // Search broker from your database
-    // Adjust the table name and columns according to your actual broker table
-    $stmt = $conn->prepare("SELECT id, name, contact FROM brokers WHERE name LIKE ? LIMIT 10");
+    // Search brokers - case-insensitive search using LOWER()
+    $stmt = $conn->prepare("SELECT id, name FROM brokers WHERE LOWER(name) LIKE LOWER(?) ORDER BY name ASC LIMIT 15");
     $searchTerm = $query . '%';
     $stmt->bind_param("s", $searchTerm);
     $stmt->execute();
@@ -23,7 +22,7 @@ try {
         $brokers[] = [
             'id' => $row['id'],
             'name' => $row['name'],
-            'info' => isset($row['contact']) ? $row['contact'] : ''
+            'info' => ''
         ];
     }
     

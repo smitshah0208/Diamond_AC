@@ -2,27 +2,25 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Invoice Entry</title>
+<title>Manage Invoices</title>
 <link rel="stylesheet" href="assets/css/invoice.css">
 </head>
 <body>
 
 <!-- ================= HEADER ================= -->
 <div class="box">
-<h2>Invoice Entry</h2>
+<h2>Manage Invoices - Edit / Delete</h2>
 
 <div class="row">
-<div class="field">
-<label>Invoice Type *</label>
-<select id="invType">
-<option value="PU">Purchase</option>
-<option value="SA">Sales</option>
-</select>
+<div class="field autocomplete">
+<label>Select Invoice Number *</label>
+<input id="invoiceSearch" placeholder="Type invoice number or select..." autocomplete="off">
+<div id="invoiceSug" class="autocomplete-list"></div>
 </div>
 
 <div class="field">
-<label>Invoice No</label>
-<input id="invNo" readonly>
+<label>Invoice Type</label>
+<input id="invType" readonly>
 </div>
 
 <div class="field">
@@ -34,13 +32,13 @@
 <div class="row">
 <div class="field autocomplete">
 <label>Party Name *</label>
-<input id="party" placeholder="Search or enter party name..." autocomplete="on">
+<input id="party" placeholder="Search party..." autocomplete="off">
 <div id="partySug" class="autocomplete-list"></div>
 </div>
 
 <div class="field autocomplete">
 <label>Broker Name</label>
-<input id="broker" placeholder="Search or enter broker name..." autocomplete="on">
+<input id="broker" placeholder="Search broker..." autocomplete="off">
 <div id="brokerSug" class="autocomplete-list"></div>
 </div>
 </div>
@@ -139,8 +137,9 @@
 </div>
 
 <div style="margin-top:20px">
-<button onclick="saveInvoice()" style="background:#28a745;font-size:16px;padding:10px 30px">💾 Save Invoice</button>
-<button onclick="resetForm()" style="background:#dc3545;font-size:16px;padding:10px 30px;margin-left:10px">🔄 Reset Form</button>
+<button onclick="updateInvoice()" style="background:#28a745;font-size:16px;padding:10px 30px">💾 Update Invoice</button>
+<button onclick="deleteInvoice()" style="background:#dc3545;font-size:16px;padding:10px 30px;margin-left:10px">🗑️ Delete Invoice</button>
+<button onclick="clearForm()" style="background:#6c757d;font-size:16px;padding:10px 30px;margin-left:10px">🔄 Clear Form</button>
 </div>
 </div>
 
@@ -199,6 +198,6 @@
 </div>
 </div>
 
-<script src="assets/js/invoice.js"></script>
+<script src="assets/js/manage_invoices.js"></script>
 </body>
 </html>

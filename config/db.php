@@ -1,16 +1,23 @@
 <?php
-$servername = "localhost";  // MySQL server
-$username = "root";         // MySQL user
-$password = "";             // MySQL password
-$database = "ac_test";
+// Suppress all errors to prevent HTML output in JSON responses
+error_reporting(0);
+ini_set('display_errors', 0);
+
+// Database configuration
+$host = 'localhost';
+$username = 'root';        // Change if needed
+$password = '';            // Change if needed
+$database = 'ac_test';
 
 // Create connection
-$conn = mysqli_connect($servername, $username, $password, $database);
+$conn = new mysqli($host, $username, $password, $database);
 
-// Check connection
-if (!$conn) {
-    die("Connection failed: " . mysqli_connect_error());
-} else {
-    // echo "Connected successfully";
+// Check connection (silently)
+if ($conn->connect_error) {
+    $conn = null;
+    die(json_encode(['error' => 'Database connection failed']));
 }
-?>
+
+// Set charset for proper character handling
+$conn->set_charset("utf8mb4");
+?> 

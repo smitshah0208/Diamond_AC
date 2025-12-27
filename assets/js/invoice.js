@@ -3,8 +3,10 @@ let rows = [];
 /* ---------- Initialize ---------- */
 document.addEventListener('DOMContentLoaded', function() {
     txnDate.valueAsDate = new Date();
-    getNextInvoiceNo();
     calcDueDate();
+    
+    // Get invoice number immediately on page load
+    getNextInvoiceNo();
     
     // Add event listeners for recalculation
     [cal1, cal2, cal3, brokerPct, tax].forEach(input => {
@@ -19,16 +21,16 @@ function getNextInvoiceNo() {
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                invNo.value = data.invoice_no;
+                invNo.value = data.invoice_num;
             } else {
                 console.error('Error getting invoice no:', data.message);
                 // Fallback
-                invNo.value = type + '-0001';
+                invNo.value = type + '-1001';
             }
         })
         .catch(err => {
             console.error('Error:', err);
-            invNo.value = type + '-0001';
+            invNo.value = type + '-1001';
         });
 }
 
@@ -45,6 +47,7 @@ function setupAutocomplete(input, suggestionBox, searchFile, onSelect) {
         suggestionBox.classList.remove('active');
         selectedIndex = -1;
         
+        // Require minimum 2 characters
         if (value.length < 2) return;
         
         // Debounce
@@ -66,7 +69,7 @@ function setupAutocomplete(input, suggestionBox, searchFile, onSelect) {
                     data.forEach((item, index) => {
                         const div = document.createElement('div');
                         div.className = 'autocomplete-item';
-                        div.innerHTML = `<strong>${item.name}</strong>${item.info ? ' - ' + item.info : ''}`;
+                        div.innerHTML = `<strong>${item.name}</strong>`;
                         div.onclick = () => {
                             input.value = item.name;
                             input.dataset.id = item.id;
@@ -367,13 +370,13 @@ function saveInvoice() {
     
     const invoiceData = {
         txn_type: invType.value,
-        invoice_no: invNo.value,
+        invoice_num: invNo.value,
         txn_date: txnDate.value,
         credit_days: credit.value,
         due_date: due.value,
         party_name: party.value.trim(),
         broker_name: broker.value.trim(),
-        description: description.value,
+        notes: notes.value,
         cal1: parseFloat(cal1.value) || 0,
         cal2: parseFloat(cal2.value) || 0,
         cal3: parseFloat(cal3.value) || 0,
@@ -423,7 +426,7 @@ function saveInvoice() {
         saveBtn.disabled = false;
         
         if (data.success) {
-            alert('✅ Invoice saved successfully!\n\nInvoice No: ' + invoiceData.invoice_no + '\nNet Amount: ₹ ' + invoiceData.net_amount.toFixed(2));
+            alert('✅ Invoice saved successfully!\n\nInvoice No: ' + invoiceData.invoice_num + '\nNet Amount: ₹ ' + invoiceData.net_amount.toFixed(2));
             resetForm();
         } else {
             alert('❌ Error saving invoice: ' + (data.message || 'Unknown error'));
@@ -444,7 +447,7 @@ function resetForm() {
     party.dataset.id = '';
     broker.value = '';
     broker.dataset.id = '';
-    description.value = '';
+    notes.value = '';
     credit.value = '0';
     cal1.value = '0';
     cal2.value = '0';
