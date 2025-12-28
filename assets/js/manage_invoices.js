@@ -1,492 +1,429 @@
 let rows = [];
 let currentInvoiceNum = null;
-let originalInvoiceData = null;
-let editingRowIndex = -1; // Track which row is being edited
+let editingRowIndex = -1;
 
-/* ---------- Initialize ---------- */
 document.addEventListener('DOMContentLoaded', function() {
-    txnDate.valueAsDate = new Date();
-    calcDueDate();
+    console.log('✅ Manage Invoices loaded');
     
-    // Add event listeners for recalculation
-    [cal1, cal2, cal3, brokerPct, tax].forEach(input => {
-        input.addEventListener('input', render);
+    // 1. Initialize Dates
+    const txnDate = document.getElementById('txnDate');
+    if(txnDate) txnDate.valueAsDate = new Date();
+
+    // 2. Add Calculation Listeners
+    ['cal1', 'cal2', 'cal3', 'brokerPct', 'tax'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.addEventListener('input', render);
     });
+
+    // 3. Date Listeners
+    const crEl = document.getElementById('credit');
+    const txEl = document.getElementById('txnDate');
+    if(crEl) crEl.addEventListener('input', calcDueDate);
+    if(txEl) txEl.addEventListener('change', calcDueDate);
+
+    // 4. Initialize Modal Logic
+    initModalListeners();
+
+    // 5. Setup Search
+    setupInvoiceSearch();
+
+    // 6. Setup Party & Broker Search
+    setupAutocomplete('party', 'partySug', 'functions/search_party.php');
+    setupAutocomplete('broker', 'brokerSug', 'functions/search_broker.php');
 });
 
-/* ---------- Search Invoice Numbers ---------- */
-function setupInvoiceSearch() {
-    let timeout = null;
+// --- Helper: Clear/Reset Form (Manual Reset) ---
+function resetForm() {
+    currentInvoiceNum = null;
+    rows = [];
+    editingRowIndex = -1;
     
-    invoiceSearch.addEventListener('input', function() {
-        const value = this.value.trim();
-        invoiceSug.innerHTML = '';
-        invoiceSug.classList.remove('active');
-        
-        if (value.length < 2) return;
+    // Clear Header Fields
+    document.getElementById('invoiceSearch').value = '';
+    document.getElementById('invType').value = '';
+    document.getElementById('txnDate').valueAsDate = new Date();
+    document.getElementById('party').value = '';
+    document.getElementById('broker').value = '';
+    document.getElementById('notes').value = '';
+    document.getElementById('credit').value = '';
+    document.getElementById('due').value = '';
+    
+    // Clear Percentages
+    ['cal1', 'cal2', 'cal3', 'brokerPct', 'tax'].forEach(id => document.getElementById(id).value = '');
+
+    // Clear Grid & Totals
+    render(); 
+    
+    console.log('🔄 Form cleared');
+}
+
+// --- Autocomplete ---
+function setupAutocomplete(inputId, sugBoxId, phpFile) {
+    const inp = document.getElementById(inputId);
+    const box = document.getElementById(sugBoxId);
+    if(!inp || !box) return;
+    
+    let timeout;
+    inp.addEventListener('input', function() {
+        const val = inp.value.trim();
+        box.innerHTML = '';
+        box.classList.remove('active');
+        if(val.length < 1) return;
         
         clearTimeout(timeout);
         timeout = setTimeout(() => {
-            fetch('functions/search_invoices.php?q=' + encodeURIComponent(value))
-                .then(res => res.json())
+            fetch(`${phpFile}?q=${encodeURIComponent(val)}`)
+                .then(r => r.json())
                 .then(data => {
-                    if (data.length === 0) {
-                        const div = document.createElement('div');
-                        div.className = 'autocomplete-item';
-                        div.style.color = '#999';
-                        div.innerHTML = 'No invoices found';
-                        invoiceSug.appendChild(div);
-                        invoiceSug.classList.add('active');
-                        return;
-                    }
-                    
+                    if(!data || data.length === 0) return;
+                    box.classList.add('active');
                     data.forEach(item => {
                         const div = document.createElement('div');
                         div.className = 'autocomplete-item';
-                        div.innerHTML = `<strong>${item.invoice_num}</strong> - ${item.party_name} - ₹${parseFloat(item.net_amount).toFixed(2)}`;
+                        div.innerText = item.name;
+                        div.onclick = function() {
+                            inp.value = item.name;
+                            box.innerHTML = '';
+                            box.classList.remove('active');
+                        };
+                        box.appendChild(div);
+                    });
+                });
+        }, 300);
+    });
+    document.addEventListener('click', function(e) { if(e.target !== inp) { box.innerHTML = ''; box.classList.remove('active'); } });
+}
+
+// --- Search Invoice ---
+function setupInvoiceSearch() {
+    const searchInp = document.getElementById('invoiceSearch');
+    const sugBox = document.getElementById('invoiceSug');
+    let timeout;
+    if(!searchInp) return;
+
+    searchInp.addEventListener('input', function() {
+        const val = this.value.trim();
+        sugBox.innerHTML = '';
+        sugBox.classList.remove('active');
+        if (val.length < 2) return;
+        
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            fetch('functions/search_invoices.php?q=' + encodeURIComponent(val))
+                .then(res => res.json())
+                .then(data => {
+                    if (!data || data.length === 0) return;
+                    sugBox.classList.add('active');
+                    data.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'autocomplete-item';
+                        div.innerHTML = `<strong>${item.invoice_num}</strong> <small>(${item.party_name})</small>`;
                         div.onclick = () => {
-                            invoiceSearch.value = item.invoice_num;
-                            invoiceSug.innerHTML = '';
-                            invoiceSug.classList.remove('active');
+                            searchInp.value = item.invoice_num;
+                            sugBox.innerHTML = '';
+                            sugBox.classList.remove('active');
                             loadInvoice(item.invoice_num);
                         };
-                        invoiceSug.appendChild(div);
+                        sugBox.appendChild(div);
                     });
-                    invoiceSug.classList.add('active');
-                })
-                .catch(err => console.error('Search error:', err));
+                });
         }, 300);
     });
 }
 
-setupInvoiceSearch();
+// --- Load Invoice ---
+function loadInvoice(invNum) {
+    console.log('📥 Loading invoice:', invNum);
+    currentInvoiceNum = invNum;
 
-/* ---------- Load Invoice ---------- */
-function loadInvoice(invoiceNum) {
-    currentInvoiceNum = invoiceNum;
-    
-    fetch('functions/get_invoice.php?invoice_num=' + encodeURIComponent(invoiceNum))
+    fetch('functions/get_invoice.php?invoice_num=' + encodeURIComponent(invNum))
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                originalInvoiceData = data.invoice;
+                const inv = data.invoice;
                 
-                // Fill form
-                invType.value = data.invoice.txn_type;
-                txnDate.value = data.invoice.txn_date;
-                party.value = data.invoice.party_name;
-                broker.value = data.invoice.broker_name || '';
-                credit.value = data.invoice.credit_days || 0;
-                due.value = data.invoice.due_date;
-                notes.value = data.invoice.notes || '';
+                document.getElementById('invType').value = inv.txn_type;
+                document.getElementById('txnDate').value = inv.txn_date;
+                document.getElementById('party').value = inv.party_name;
+                document.getElementById('broker').value = inv.broker_name || '';
+                document.getElementById('notes').value = inv.notes || '';
+                document.getElementById('credit').value = inv.credit_days;
+                document.getElementById('due').value = inv.due_date;
                 
-                // Load Percentages
-                cal1.value = parseFloat(data.invoice.cal1) || 0;
-                cal2.value = parseFloat(data.invoice.cal2) || 0;
-                cal3.value = parseFloat(data.invoice.cal3) || 0;
+                document.getElementById('cal1').value = parseFloat(inv.cal1);
+                document.getElementById('cal2').value = parseFloat(inv.cal2);
+                document.getElementById('cal3').value = parseFloat(inv.cal3);
+                document.getElementById('brokerPct').value = parseFloat(inv.brokerage_pct);
                 
-                // Brokerage Percentage Calculation
-                let calculatedPct = (parseFloat(data.invoice.brokerage_amt) / parseFloat(data.invoice.gross_amt) * 100) || 0;
-                brokerPct.value = parseFloat(calculatedPct.toFixed(2));
-                
-                tax.value = parseFloat(data.invoice.tax) || 0;
-                
-                // Load items
+                let tPct = 0;
+                if(inv.gross_amt_local > 0 && inv.tax_local > 0) {
+                    tPct = (parseFloat(inv.tax_local) / parseFloat(inv.gross_amt_local)) * 100;
+                }
+                document.getElementById('tax').value = tPct.toFixed(2);
+
                 rows = data.items.map(item => ({
                     cur: item.currency,
                     qty: parseFloat(item.qty),
                     rateUsd: parseFloat(item.rate_usd),
-                    rateInr: parseFloat(item.rate_inr),
+                    rateLocal: parseFloat(item.rate_local),
                     convRate: parseFloat(item.conv_rate),
                     baseUsd: parseFloat(item.base_amount_usd),
-                    baseInr: parseFloat(item.base_amount_inr)
+                    baseLocal: parseFloat(item.base_amount_local)
                 }));
-                
+
                 render();
-                alert('✅ Invoice loaded successfully!');
+                
+                // ✅ Notification added here
+                alert(`✅ Invoice ${invNum} loaded successfully!`);
+                
             } else {
-                alert('❌ Error loading invoice: ' + data.message);
+                alert('❌ Error: ' + data.message);
             }
         })
-        .catch(err => {
-            console.error('Error:', err);
-            alert('❌ Error loading invoice');
+        .catch(err => console.error(err));
+}
+
+// --- Modal ---
+function initModalListeners() {
+    const mcur = document.getElementById('mcur');
+    if(mcur) {
+        mcur.addEventListener('change', function() {
+            const val = this.value;
+            ['mrateUsd', 'mrateLocal', 'conv', 'musd', 'mlocal'].forEach(id => document.getElementById(id).value = '');
+
+            if(val === 'BOTH') {
+                unlockField('mrateUsd'); unlockField('conv'); lockField('mrateLocal');
+            } else if (val === 'LOCAL') {
+                lockField('mrateUsd'); lockField('conv'); unlockField('mrateLocal');
+            } else {
+                lockField('mrateUsd'); lockField('conv'); lockField('mrateLocal');
+            }
         });
+    }
+
+    ['mqty', 'mrateUsd', 'mrateLocal', 'conv'].forEach(id => {
+        document.getElementById(id).addEventListener('input', calculateModalValues);
+    });
 }
 
-/* ---------- Autocomplete Helper ---------- */
-function setupAutocomplete(input, suggestionBox, searchFile) {
-    let timeout = null;
-    input.addEventListener('input', function() {
-        const value = this.value.trim();
-        suggestionBox.innerHTML = '';
-        suggestionBox.classList.remove('active');
-        
-        if (value.length < 2) return;
-        
-        clearTimeout(timeout);
-        timeout = setTimeout(() => {
-            fetch(searchFile + '?q=' + encodeURIComponent(value))
-                .then(res => res.json())
-                .then(data => {
-                    if (data.length === 0) return;
-                    data.forEach(item => {
-                        const div = document.createElement('div');
-                        div.className = 'autocomplete-item';
-                        div.innerHTML = `<strong>${item.name}</strong>`;
-                        div.onclick = () => {
-                            input.value = item.name;
-                            suggestionBox.innerHTML = '';
-                            suggestionBox.classList.remove('active');
-                        };
-                        suggestionBox.appendChild(div);
-                    });
-                    suggestionBox.classList.add('active');
-                });
-        }, 300);
-    });
+function calculateModalValues() {
+    const cur = document.getElementById('mcur').value;
+    const qty = parseFloat(document.getElementById('mqty').value) || 0;
     
-    document.addEventListener('click', e => {
-        if (e.target !== input) {
-            suggestionBox.innerHTML = '';
-            suggestionBox.classList.remove('active');
-        }
-    });
+    if(cur === 'BOTH') {
+        const rUsd = parseFloat(document.getElementById('mrateUsd').value) || 0;
+        const c = parseFloat(document.getElementById('conv').value) || 0;
+        const amtUsd = parseFloat((qty * rUsd).toFixed(2));
+        document.getElementById('musd').value = amtUsd;
+        document.getElementById('mlocal').value = parseFloat((amtUsd * c).toFixed(2));
+        document.getElementById('mrateLocal').value = c > 0 ? (rUsd * c).toFixed(4) : 0;
+    } else if (cur === 'LOCAL') {
+        const rLoc = parseFloat(document.getElementById('mrateLocal').value) || 0;
+        document.getElementById('mlocal').value = parseFloat((qty * rLoc).toFixed(2));
+        document.getElementById('musd').value = 0;
+    }
 }
 
-setupAutocomplete(party, partySug, 'functions/search_party.php');
-setupAutocomplete(broker, brokerSug, 'functions/search_broker.php');
-
-/* ---------- Due Date ---------- */
-function calcDueDate() {
-    let d = new Date(txnDate.value || new Date());
-    d.setDate(d.getDate() + Number(credit.value || 0));
-    due.value = d.toISOString().split('T')[0];
+function unlockField(id) {
+    const el = document.getElementById(id);
+    if(el) { el.readOnly = false; el.disabled = false; el.style.backgroundColor = '#ffffff'; }
 }
-credit.addEventListener('input', calcDueDate);
-txnDate.addEventListener('change', calcDueDate);
+function lockField(id) {
+    const el = document.getElementById(id);
+    if(el) { el.readOnly = true; el.style.backgroundColor = '#f0f0f0'; }
+}
 
-/* ---------- Modal Logic ---------- */
 function openModal() {
-    modal.style.display = 'block';
-    // If we are NOT editing, reset the form
-    if (editingRowIndex === -1) {
-        resetModal();
+    const modal = document.getElementById('modal');
+    if(modal) {
+        modal.style.display = 'block';
+        if(editingRowIndex === -1) {
+            document.getElementById('mcur').value = '';
+            document.getElementById('mqty').value = '';
+            document.getElementById('musd').value = '';
+            document.getElementById('mlocal').value = '';
+            lockField('mrateUsd'); lockField('mrateLocal'); lockField('conv');
+            document.querySelector('.modal-buttons button:first-child').innerText = "✓ Add Item";
+        }
     }
 }
 
 function closeModal() {
-    modal.style.display = 'none';
-    editingRowIndex = -1; // Clear editing state on close
-    resetModal();         // Clean inputs
+    document.getElementById('modal').style.display = 'none';
+    editingRowIndex = -1;
 }
 
-function resetModal() {
-    [mqty, mrateUsd, mrateInr, conv, musd, minr].forEach(i => i.value = '');
-    mcur.value = '';
-    mrateUsd.disabled = true;
-    mrateInr.disabled = true;
-    conv.disabled = true;
-    
-    // Reset Button Text
-    const btn = document.querySelector('.modal-buttons button:first-child');
-    if(btn) btn.innerText = "✓ Add Item";
-}
-
-mcur.addEventListener('change', function() {
-    let selectedValue = mcur.value;
-    
-    // Only clear values if we are NOT in the middle of loading an edit
-    // (Simple check: if inputs are empty, it's fresh. If not, preserve them)
-    if (mqty.value === '') {
-        [mqty, mrateUsd, mrateInr, conv, musd, minr].forEach(i => i.value = '');
-    }
-
-    mrateUsd.disabled = true;
-    mrateInr.disabled = true;
-    conv.disabled = true;
-    
-    if (selectedValue === 'BOTH') {
-        conv.disabled = false;
-        mrateUsd.disabled = false;
-    }
-    if (selectedValue === 'INR') {
-        mrateInr.disabled = false;
-    }
-});
-
-[mqty, mrateUsd, mrateInr, conv].forEach(i => i.addEventListener('input', calcModal));
-
-function calcModal() {
-    let q = parseFloat(mqty.value) || 0;
-    if (mcur.value === 'BOTH') {
-        let rUsd = parseFloat(mrateUsd.value) || 0;
-        let c = parseFloat(conv.value) || 0;
-        let rInr = rUsd * c;
-        mrateInr.value = rInr.toFixed(4);
-        musd.value = (q * rUsd).toFixed(2);
-        minr.value = (q * rInr).toFixed(2);
-    }
-    if (mcur.value === 'INR') {
-        let rInr = parseFloat(mrateInr.value) || 0;
-        musd.value = '';
-        minr.value = (q * rInr).toFixed(2);
-    }
-}
-
-/* ---------- Add / Update Row ---------- */
 function addRow() {
-    if (!mcur.value) { alert('Select currency'); return; }
-    if (!mqty.value || parseFloat(mqty.value) <= 0) { alert('Invalid quantity'); return; }
+    const mcur = document.getElementById('mcur').value;
+    const mqty = parseFloat(document.getElementById('mqty').value) || 0;
     
-    const newItem = {
-        cur: mcur.value,
-        qty: parseFloat(mqty.value),
-        rateUsd: mcur.value === 'BOTH' ? parseFloat(mrateUsd.value) : 0,
-        rateInr: parseFloat(mrateInr.value),
-        convRate: mcur.value === 'BOTH' ? parseFloat(conv.value) : 0,
-        baseUsd: parseFloat(musd.value) || 0,
-        baseInr: parseFloat(minr.value)
+    if(!mcur) { alert('Select Currency'); return; }
+    if(mqty <= 0) { alert('Invalid Qty'); return; }
+
+    const item = {
+        cur: mcur,
+        qty: mqty,
+        rateUsd: parseFloat(document.getElementById('mrateUsd').value) || 0,
+        rateLocal: parseFloat(document.getElementById('mrateLocal').value) || 0,
+        convRate: parseFloat(document.getElementById('conv').value) || 0,
+        baseUsd: parseFloat(document.getElementById('musd').value) || 0,
+        baseLocal: parseFloat(document.getElementById('mlocal').value) || 0
     };
-    
-    if (editingRowIndex > -1) {
-        // Update Existing Row
-        rows[editingRowIndex] = newItem;
-        editingRowIndex = -1; // Reset
-    } else {
-        // Add New Row
-        rows.push(newItem);
-    }
+
+    if(editingRowIndex > -1) rows[editingRowIndex] = item;
+    else rows.push(item);
     
     closeModal();
     render();
 }
 
-/* ---------- Edit Row Function ---------- */
-function editRow(index) {
-    editingRowIndex = index;
-    const item = rows[index];
-    
-    // Fill Modal with Data
+function editRow(i) {
+    editingRowIndex = i;
+    const item = rows[i];
+    const mcur = document.getElementById('mcur');
     mcur.value = item.cur;
-    
-    // Trigger change event to set disabled/enabled states
     mcur.dispatchEvent(new Event('change'));
     
-    mqty.value = item.qty;
+    document.getElementById('mqty').value = item.qty;
+    document.getElementById('mrateUsd').value = item.rateUsd > 0 ? item.rateUsd : '';
+    document.getElementById('mrateLocal').value = item.rateLocal;
+    document.getElementById('conv').value = item.convRate > 0 ? item.convRate : '';
+    calculateModalValues();
     
-    if (item.cur === 'BOTH') {
-        mrateUsd.value = item.rateUsd;
-        conv.value = item.convRate;
-    } else {
-        mrateInr.value = item.rateInr;
-    }
-    
-    // Recalculate totals in modal
-    calcModal();
-    
-    // Change Button Text to "Update"
-    const btn = document.querySelector('.modal-buttons button:first-child');
-    if(btn) btn.innerText = "✓ Update Item";
-    
-    // Open Modal
-    modal.style.display = 'block';
+    document.querySelector('.modal-buttons button:first-child').innerText = "✓ Update Item";
+    document.getElementById('modal').style.display = 'block';
 }
 
-/* ---------- Render Grid ---------- */
 function render() {
-    let tb = grid.querySelector('tbody');
+    const tb = document.querySelector('#grid tbody');
     tb.innerHTML = '';
-    
-    const c1 = parseFloat(cal1.value) || 0;
-    const c2 = parseFloat(cal2.value) || 0;
-    const c3 = parseFloat(cal3.value) || 0;
-    const brokerPercent = parseFloat(brokerPct.value) || 0;
-    const taxPercent = parseFloat(tax.value) || 0;
-    
-    let totalAdjustedInr = 0;
-    
+
+    const getVal = (id) => parseFloat(document.getElementById(id)?.value || 0);
+    const c1 = getVal('cal1'); const c2 = getVal('cal2'); const c3 = getVal('cal3');
+    const bPct = getVal('brokerPct'); const tPct = getVal('tax');
+
+    let totBaseUsd = 0; let totBaseLoc = 0;
+    let grandAdjUsd = 0; let grandAdjLoc = 0;
+
     rows.forEach((r, i) => {
-        let adjustedUsd = 0;
-        let adjustedInr = 0;
-        
-        if (r.cur === 'BOTH') {
-            adjustedUsd = r.baseUsd;
-            if (c1 !== 0) adjustedUsd += (adjustedUsd * c1 / 100);
-            if (c2 !== 0) adjustedUsd += (adjustedUsd * c2 / 100);
-            if (c3 !== 0) adjustedUsd += (adjustedUsd * c3 / 100);
-            adjustedInr = adjustedUsd * r.convRate;
-        } else {
-            adjustedInr = r.baseInr;
-            if (c1 !== 0) adjustedInr += (adjustedInr * c1 / 100);
-            if (c2 !== 0) adjustedInr += (adjustedInr * c2 / 100);
-            if (c3 !== 0) adjustedInr += (adjustedInr * c3 / 100);
-        }
-        
-        r.adjustedUsd = adjustedUsd;
-        r.adjustedInr = adjustedInr;
-        totalAdjustedInr += adjustedInr;
+        totBaseUsd += r.baseUsd; totBaseLoc += r.baseLocal;
+        let adjUsd = r.baseUsd; let adjLoc = r.baseLocal;
+        [c1, c2, c3].forEach(pct => {
+            if(pct) { adjUsd += adjUsd * (pct/100); adjLoc += adjLoc * (pct/100); }
+        });
+        grandAdjUsd += adjUsd; grandAdjLoc += adjLoc;
         
         tb.innerHTML += `
         <tr>
             <td>${r.cur}</td>
-            <td>${r.qty}</td>
-            <td>${r.rateUsd || '-'}</td>
-            <td>${r.rateInr.toFixed(4)}</td>
-            <td>${adjustedUsd > 0 ? adjustedUsd.toFixed(2) : '-'}</td>
-            <td>₹ ${adjustedInr.toFixed(2)}</td>
-            <td>
-                <button onclick="editRow(${i})" style="margin-right:5px;cursor:pointer;">✏️ Edit</button>
-                <button onclick="del(${i})" style="color:red;cursor:pointer;">🗑️ Delete</button>
-            </td>
+            <td>${r.qty.toFixed(2)}</td>
+            <td>${r.rateUsd > 0 ? r.rateUsd.toFixed(2) : '-'}</td>
+            <td>${r.rateLocal.toFixed(4)}</td>
+            <td>${adjUsd.toFixed(2)}</td>
+            <td>${adjLoc.toFixed(2)}</td>
+            <td><button onclick="editRow(${i})">✏️</button> <button onclick="del(${i})" style="color:red; margin-left:5px;">🗑️</button></td>
         </tr>`;
     });
 
-    // --- Footer Calculations ---
-    let baseTotal = rows.reduce((sum, r) => sum + r.baseInr, 0);
-    document.getElementById('baseTotal').innerText = '₹ ' + baseTotal.toFixed(2);
+    document.getElementById('baseTotal').innerText = totBaseLoc.toFixed(2);
+    document.getElementById('baseTotalUsd').innerText = totBaseUsd.toFixed(2);
     
-    let displayAmount = baseTotal;
-    if (c1 !== 0) displayAmount += (displayAmount * c1 / 100);
-    document.getElementById('cal1Display').innerText = c1.toFixed(2);
-    document.getElementById('afterCal1').innerText = '₹ ' + displayAmount.toFixed(2);
+    const gUsd = grandAdjUsd; const gLoc = grandAdjLoc;
+    document.getElementById('grossUsd').innerText = gUsd.toFixed(2);
+    document.getElementById('grossLocal').innerText = gLoc.toFixed(2);
     
-    if (c2 !== 0) displayAmount += (displayAmount * c2 / 100);
-    document.getElementById('cal2Display').innerText = c2.toFixed(2);
-    document.getElementById('afterCal2').innerText = '₹ ' + displayAmount.toFixed(2);
+    document.getElementById('brokerAmtUsd').innerText = (gUsd * bPct / 100).toFixed(2);
+    document.getElementById('brokerAmt').innerText = (gLoc * bPct / 100).toFixed(2);
     
-    if (c3 !== 0) displayAmount += (displayAmount * c3 / 100);
-    document.getElementById('cal3Display').innerText = c3.toFixed(2);
-    document.getElementById('afterCal3').innerText = '₹ ' + displayAmount.toFixed(2);
+    const tUsd = gUsd * tPct / 100;
+    const tLoc = gLoc * tPct / 100;
+    document.getElementById('taxAmtUsd').innerText = tUsd.toFixed(2);
+    document.getElementById('taxAmt').innerText = tLoc.toFixed(2);
     
-    const grossAmount = totalAdjustedInr;
-    grossInr.innerText = '₹ ' + grossAmount.toFixed(2);
-    
-    const brokerageAmount = grossAmount * (brokerPercent / 100);
-    document.getElementById('brokerPctDisplay').innerText = brokerPercent.toFixed(2);
-    brokerAmt.innerText = '₹ ' + brokerageAmount.toFixed(2);
-    
-    const taxAmount = grossAmount * (taxPercent / 100);
-    document.getElementById('taxDisplay').innerText = taxPercent.toFixed(2);
-    document.getElementById('taxAmt').innerText = '₹ ' + taxAmount.toFixed(2);
-    
-    const netAmount = grossAmount + taxAmount;
-    netInr.innerText = '₹ ' + netAmount.toFixed(2);
+    document.getElementById('netUsd').innerText = (gUsd + tUsd).toFixed(2);
+    document.getElementById('netLocal').innerText = (gLoc + tLoc).toFixed(2);
 }
 
 function del(i) {
-    if (confirm('Delete this item?')) {
-        rows.splice(i, 1);
-        render();
-    }
+    if(confirm('Delete row?')) { rows.splice(i, 1); render(); }
 }
 
-/* ---------- Update Invoice ---------- */
+function calcDueDate() {
+    const txn = new Date(document.getElementById('txnDate').value);
+    const cr = parseFloat(document.getElementById('credit').value) || 0;
+    txn.setDate(txn.getDate() + cr);
+    document.getElementById('due').value = txn.toISOString().split('T')[0];
+}
+
 function updateInvoice() {
-    if (!currentInvoiceNum) { alert('Select an invoice first'); return; }
-    if (!party.value.trim()) { alert('Enter party name'); return; }
-    if (rows.length === 0) { alert('Add at least one item'); return; }
+    if(!currentInvoiceNum) { alert('Load invoice first'); return; }
+    if(rows.length === 0) { alert('No items'); return; }
     
-    if (!confirm('Update invoice?')) return;
+    const getVal = (id) => parseFloat(document.getElementById(id)?.value || 0);
+    const getTxt = (id) => parseFloat(document.getElementById(id)?.innerText || 0);
     
-    const itemsToSave = rows.map(r => ({
-        cur: r.cur,
-        qty: r.qty,
-        rateUsd: r.rateUsd,
-        rateInr: r.rateInr,
-        convRate: r.convRate || 0,
-        baseUsd: r.baseUsd,
-        baseInr: r.baseInr,
-        adjustedUsd: r.adjustedUsd || 0,
-        adjustedInr: r.adjustedInr
-    }));
-    
-    const updateData = {
+    const itemsToSend = rows.map(r => {
+        let aUsd = r.baseUsd; let aLoc = r.baseLocal;
+        [getVal('cal1'), getVal('cal2'), getVal('cal3')].forEach(pct => {
+            if(pct) { aUsd += aUsd * (pct/100); aLoc += aLoc * (pct/100); }
+        });
+        return { ...r, adjUsd: aUsd.toFixed(2), adjLocal: aLoc.toFixed(2) };
+    });
+
+    const data = {
         invoice_num: currentInvoiceNum,
-        txn_date: txnDate.value,
-        party_name: party.value.trim(),
-        broker_name: broker.value.trim(),
-        notes: notes.value,
-        credit_days: credit.value,
-        due_date: due.value,
-        cal1: parseFloat(cal1.value) || 0,
-        cal2: parseFloat(cal2.value) || 0,
-        cal3: parseFloat(cal3.value) || 0,
-        brokerage_amt: parseFloat(brokerAmt.innerText.replace('₹ ', '').replace(',', '')),
-        gross_amt: parseFloat(grossInr.innerText.replace('₹ ', '').replace(',', '')),
-        tax: parseFloat(tax.value) || 0,
-        net_amount: parseFloat(netInr.innerText.replace('₹ ', '').replace(',', '')),
-        party_status: 1,
-        broker_status: broker.value.trim() ? 1 : 0,
-        items: itemsToSave
-    };
-    
-    const updateBtn = event.target;
-    updateBtn.innerText = '⏳ Updating...';
-    updateBtn.disabled = true;
-    
-    fetch('functions/update_invoice.php', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(updateData)
-    })
-    .then(res => res.json())
-    .then(data => {
-        updateBtn.innerText = '💾 Update Invoice';
-        updateBtn.disabled = false;
+        txn_date: document.getElementById('txnDate').value,
+        party_name: document.getElementById('party').value,
+        broker_name: document.getElementById('broker').value,
+        notes: document.getElementById('notes').value,
+        credit_days: document.getElementById('credit').value,
+        due_date: document.getElementById('due').value,
+        cal1: getVal('cal1'), cal2: getVal('cal2'), cal3: getVal('cal3'),
+        brokerage_pct: getVal('brokerPct'),
+        tax_pct: getVal('tax'),
         
-        if (data.success) {
-            alert('✅ Updated successfully!');
-            loadInvoice(currentInvoiceNum);
-        } else {
-            alert('❌ Error: ' + data.message);
-        }
+        gross_amt_local: getTxt('grossLocal'), gross_amt_usd: getTxt('grossUsd'),
+        brokerage_amt: getTxt('brokerAmt'), brokerage_amt_usd: getTxt('brokerAmtUsd'),
+        tax_local: getTxt('taxAmt'), tax_usd: getTxt('taxAmtUsd'),
+        net_amount_local: getTxt('netLocal'), net_amount_usd: getTxt('netUsd'),
+        
+        party_status: 1, broker_status: document.getElementById('broker').value ? 1 : 0,
+        items: itemsToSend
+    };
+
+    const btn = event.target;
+    const oldTxt = btn.innerText;
+    btn.innerText = 'Updating...'; btn.disabled = true;
+
+    fetch('functions/update_invoice.php', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
     })
-    .catch(err => {
-        updateBtn.innerText = '💾 Update Invoice';
-        updateBtn.disabled = false;
-        console.error(err);
-        alert('❌ Network Error');
+    .then(r => r.json())
+    .then(d => {
+        btn.innerText = oldTxt; btn.disabled = false;
+        if(d.success) alert('✅ Invoice Updated Successfully!');
+        else alert('❌ Error: ' + d.message);
+    })
+    .catch(e => {
+        btn.innerText = oldTxt; btn.disabled = false;
+        alert('❌ Error: ' + e.message);
     });
 }
 
 function deleteInvoice() {
-    if (!currentInvoiceNum) return;
-    if (!confirm('Permanently delete invoice?')) return;
+    if(!currentInvoiceNum) return;
+    if(!confirm('Delete this invoice?')) return;
     
     fetch('functions/delete_invoice.php', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ invoice_num: currentInvoiceNum })
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({invoice_num: currentInvoiceNum})
     })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            alert('✅ Deleted!');
-            clearForm();
-        } else {
-            alert('❌ Error: ' + data.message);
+    .then(r => r.json())
+    .then(d => {
+        if(d.success) { 
+            alert('✅ Invoice Deleted Successfully'); 
+            resetForm(); // ✅ Clears form immediately instead of reloading
         }
+        else alert('❌ Error: ' + d.message);
     });
-}
-
-function clearForm() {
-    currentInvoiceNum = null;
-    originalInvoiceData = null;
-    rows = [];
-    render();
-    
-    invoiceSearch.value = '';
-    invType.value = '';
-    party.value = '';
-    broker.value = '';
-    notes.value = '';
-    credit.value = '0';
-    cal1.value = '0';
-    cal2.value = '0';
-    cal3.value = '0';
-    brokerPct.value = '0';
-    tax.value = '0';
-    txnDate.valueAsDate = new Date();
-    calcDueDate();
 }

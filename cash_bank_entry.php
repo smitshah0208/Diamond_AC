@@ -8,10 +8,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/cash_bank.css">
     <style>
-        /* Extra styles for this specific logic */
         .sub-section { background: #f0f9ff; padding: 15px; border-radius: 8px; border: 1px solid #bae6fd; margin-bottom: 15px; display: none; }
         .sub-section.active { display: block; }
         .entity-display { font-weight: bold; color: #1e40af; background: #dbeafe; padding: 8px; border-radius: 4px; margin-top: 5px; display: none; }
+        .tax-display-box { margin-top:10px; padding:10px; background:#ffffff; border:1px solid #ddd; border-left: 4px solid #ea580c; display:none; }
     </style>
 </head>
 <body>
@@ -29,8 +29,8 @@
                 <th style="width: 120px;">Date</th>
                 <th>Particulars</th>
                 <th>Ref Invoice</th>
-                <th style="text-align:right;">Debit (₹)</th>
-                <th style="text-align:right;">Credit (₹)</th>
+                <th style="text-align:right;">Debit (Local)</th>
+                <th style="text-align:right;">Credit (Local)</th>
                 <th style="text-align:center; width: 100px;">Action</th>
             </tr>
         </thead>
@@ -49,6 +49,7 @@
         <form id="txnForm">
             <input type="hidden" id="editId" value="">
 
+            <!-- Row 1: Date & Account Type -->
             <div class="form-grid">
                 <div><label>Date</label><input type="date" id="txnDate" required></div>
                 <div>
@@ -60,7 +61,7 @@
                 </div>
             </div>
 
-            <!-- 1. CATEGORY SELECTION -->
+            <!-- Row 2: Category Selection -->
             <div class="radio-group">
                 <label class="radio-label">
                     <input type="radio" name="txnCat" value="GENERAL" checked onchange="handleTxnCatChange()"> 
@@ -72,7 +73,7 @@
                 </label>
             </div>
 
-            <!-- 2. GENERAL MODE SECTION -->
+            <!-- SECTION: GENERAL MODE -->
             <div id="generalSection" class="sub-section active">
                 <label style="color:#1e40af; margin-bottom:10px;">Link this transaction to (Optional):</label>
                 <div class="radio-group" style="background:white; border:1px solid #e5e7eb;">
@@ -88,7 +89,7 @@
                 </div>
             </div>
 
-            <!-- 3. INVOICE MODE SECTION -->
+            <!-- SECTION: INVOICE MODE -->
             <div id="invoiceSection" class="sub-section">
                 <div class="form-grid">
                     <div class="full-width autocomplete">
@@ -100,11 +101,21 @@
                 
                 <div style="border-top:1px solid #bfdbfe; padding-top:10px;">
                     <label style="margin-bottom:8px;">Payment For / Received From:</label>
-                    <div style="display:flex; gap:20px; margin-bottom:5px;">
+                    <div style="display:flex; gap:15px; margin-bottom:5px;">
                         <label class="radio-label"><input type="radio" name="invLinkType" value="PARTY" onchange="updateInvEntityDisplay()"> Party</label>
                         <label class="radio-label"><input type="radio" name="invLinkType" value="BROKER" onchange="updateInvEntityDisplay()"> Broker</label>
+                        <!-- Added Tax Option -->
+                        <label class="radio-label"><input type="radio" name="invLinkType" value="TAX" onchange="updateInvEntityDisplay()"> Tax</label>
                     </div>
+                    
                     <div id="invEntityDisplay" class="entity-display"></div>
+                    
+                    <!-- New Tax Info Box -->
+                    <div id="invTaxInfo" class="tax-display-box">
+                        <strong>Tax Payable:</strong><br>
+                        <span id="txtTaxUsd"></span><br>
+                        <span id="txtTaxLocal"></span>
+                    </div>
                 </div>
             </div>
 
@@ -116,22 +127,25 @@
                 </div>
             </div>
 
-            <!-- Currency & Amounts -->
+            <!-- New Payment Currency -->
             <div class="form-grid">
                 <div>
-                    <label>Currency Mode</label>
-                    <select id="currMode"><option value="INR">INR Only</option><option value="BOTH">Multi-Currency</option></select>
+                    <label>Payment Currency</label>
+                    <select id="payCurrency">
+                        <option value="Local">Local Currency</option>
+                        <option value="Dollar">Dollar ($)</option>
+                    </select>
                 </div>
-                <div><label>Conv. Rate</label><input type="number" step="0.01" id="convRate" disabled></div>
+                <div><label>Conv. Rate</label><input type="number" step="0.0001" id="convRate" disabled placeholder="Rate"></div>
             </div>
 
             <div class="form-grid">
                 <div><label>Debit ($)</label><input type="number" step="0.01" id="drUsd" disabled></div>
-                <div><label>Debit (₹)</label><input type="number" step="0.01" id="drInr"></div>
+                <div><label>Debit (Local)</label><input type="number" step="0.01" id="drLocal"></div>
             </div>
             <div class="form-grid">
                 <div><label>Credit ($)</label><input type="number" step="0.01" id="crUsd" disabled></div>
-                <div><label>Credit (₹)</label><input type="number" step="0.01" id="crInr"></div>
+                <div><label>Credit (Local)</label><input type="number" step="0.01" id="crLocal"></div>
             </div>
 
             <button type="submit" class="btn-add" id="saveBtn" style="width:100%; margin-top:15px;">💾 Save Transaction</button>

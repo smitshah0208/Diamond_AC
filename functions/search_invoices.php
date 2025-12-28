@@ -1,8 +1,7 @@
 <?php
-// File: functions/search_invoices.php
-error_reporting(0);
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
-if (ob_get_level()) ob_clean(); // Prevent stray spaces
+if (ob_get_level()) ob_clean();
 header('Content-Type: application/json; charset=utf-8');
 
 include "../config/db.php";
@@ -15,8 +14,9 @@ if (strlen($query) < 2) {
 }
 
 try {
-    // Make sure we select broker_name
-    $stmt = $conn->prepare("SELECT invoice_num, party_name, broker_name, net_amount 
+    // Select tax details as well
+    $stmt = $conn->prepare("SELECT invoice_num, party_name, broker_name, 
+                            tax_local, tax_usd, net_amount_local 
                             FROM invoice_txn 
                             WHERE invoice_num LIKE ? 
                             ORDER BY txn_id DESC LIMIT 20");
@@ -30,9 +30,11 @@ try {
         $invoices[] = [
             'invoice_num' => $row['invoice_num'],
             'party_name' => $row['party_name'],
-            // Ensure broker_name is not null
             'broker_name' => $row['broker_name'] ? $row['broker_name'] : '', 
-            'net_amount' => $row['net_amount']
+            // Return tax info for UI display
+            'tax_local' => $row['tax_local'],
+            'tax_usd' => $row['tax_usd'],
+            'net_amount' => $row['net_amount_local']
         ];
     }
     

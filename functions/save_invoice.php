@@ -1,199 +1,100 @@
 <?php
-// File: functions/save_invoice.php
-
-// 1. Setup Error Handling
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
-ini_set('log_errors', 1);
-ini_set('error_log', 'debug_log.txt');
-
-// 2. Prepare JSON Response
 if (ob_get_level()) ob_clean();
 header('Content-Type: application/json; charset=utf-8');
 
 try {
-    // 3. Include Database
-    if (!file_exists("../config/db.php")) {
-        throw new Exception("Database config file not found at ../config/db.php");
-    }
     include "../config/db.php";
-
-    // 4. Get Data
+    
     $rawData = file_get_contents('php://input');
     $data = json_decode($rawData, true);
-
+    
     if (!$data) {
-        throw new Exception("No JSON data received or invalid JSON");
+        throw new Exception("Invalid JSON data received");
     }
 
-    // 5. Start Transaction
     $conn->begin_transaction();
 
-    // ---------------------------------------------------------
-    // A. Handle Party
-    // ---------------------------------------------------------
-    $partyName = trim($data['party_name'] ?? '');
-    if (empty($partyName)) throw new Exception("Party name is required");
-
-    $stmt = $conn->prepare("SELECT id FROM parties WHERE name = ? LIMIT 1");
-    $stmt->bind_param("s", $partyName);
-    $stmt->execute();
-    if ($stmt->get_result()->num_rows === 0) {
-        $stmt->close();
-        $ins = $conn->prepare("INSERT INTO parties (name) VALUES (?)");
-        $ins->bind_param("s", $partyName);
-        $ins->execute();
-        $ins->close();
-    } else {
-        $stmt->close();
+    // 1. Party
+    $partyName = trim($data['party_name']);
+    $res = $conn->query("SELECT id FROM parties WHERE name = '" . $conn->real_escape_string($partyName) . "'");
+    if ($res->num_rows == 0) {
+        $conn->query("INSERT INTO parties (name) VALUES ('" . $conn->real_escape_string($partyName) . "')");
     }
 
-    // ---------------------------------------------------------
-    // B. Handle Broker
-    // ---------------------------------------------------------
-    $brokerName = trim($data['broker_name'] ?? '');
+    // 2. Broker
+    $brokerName = trim($data['broker_name']);
     if (!empty($brokerName)) {
-        $stmt = $conn->prepare("SELECT id FROM brokers WHERE name = ? LIMIT 1");
-        $stmt->bind_param("s", $brokerName);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows === 0) {
-            $stmt->close();
-            $ins = $conn->prepare("INSERT INTO brokers (name) VALUES (?)");
-            $ins->bind_param("s", $brokerName);
-            $ins->execute();
-            $ins->close();
-        } else {
-            $stmt->close();
+        $res = $conn->query("SELECT id FROM brokers WHERE name = '" . $conn->real_escape_string($brokerName) . "'");
+        if ($res->num_rows == 0) {
+            $conn->query("INSERT INTO brokers (name) VALUES ('" . $conn->real_escape_string($brokerName) . "')");
         }
     }
 
-    // ---------------------------------------------------------
-    // C. Insert Invoice Header
-    // ---------------------------------------------------------
-    
-    // Check if invoice number already exists
-    $check = $conn->prepare("SELECT txn_id FROM invoice_txn WHERE invoice_num = ?");
-    $check->bind_param("s", $data['invoice_num']);
-    $check->execute();
-    if ($check->get_result()->num_rows > 0) {
-        throw new Exception("Invoice Number " . $data['invoice_num'] . " already exists.");
-    }
-    $check->close();
+    // 3. Invoice Number Logic
+    $invNum = $data['invoice_num'];
+    $parts = explode('-', $invNum);
+    $txnNum = (count($parts) > 1) ? intval($parts[1]) : intval(preg_replace('/[^0-9]/', '', $invNum));
 
-    // Extract txn_number (e.g., 1001 from PU-1001)
-    $invoice_num = $data['invoice_num'];
-    $parts = explode('-', $invoice_num);
-    if (count($parts) > 1) {
-        $txn_number = intval($parts[1]); 
-    } else {
-        $txn_number = intval(preg_replace('/[^0-9]/', '', $invoice_num));
-    }
-    
-    $sql = "INSERT INTO invoice_txn 
-            (txn_type, invoice_num, txn_number, txn_date, party_name, broker_name, notes, 
-             credit_days, due_date, cal1, cal2, cal3, 
-             brokerage_amt, gross_amt, tax, net_amount, party_status, broker_status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) throw new Exception("Prepare failed: " . $conn->error);
+    // 4. Header Insert
+    $stmt = $conn->prepare("INSERT INTO invoice_txn 
+        (txn_type, invoice_num, txn_number, txn_date, party_name, broker_name, notes, 
+         brokerage_pct, credit_days, due_date, cal1, cal2, cal3, 
+         brokerage_amt, brokerage_amt_usd, gross_amt_local, gross_amt_usd, 
+         tax_local, tax_usd, net_amount_local, net_amount_usd, 
+         party_status, broker_status) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
-    // Prepare variables for binding
-    $txn_type = $data['txn_type'];
-    $txn_date = $data['txn_date'];
-    $notes = $data['notes'] ?? '';
-    $credit_days = intval($data['credit_days'] ?? 0);
-    $due_date = $data['due_date'];
-    
-    $cal1 = floatval($data['cal1'] ?? 0);
-    $cal2 = floatval($data['cal2'] ?? 0);
-    $cal3 = floatval($data['cal3'] ?? 0);
-    $brokerage_amt = floatval($data['brokerage_amt'] ?? 0);
-    $gross_amt = floatval($data['gross_amt'] ?? 0);
-    $tax = floatval($data['tax'] ?? 0);
-    $net_amount = floatval($data['net_amount'] ?? 0);
-    
-    $party_status = intval($data['party_status'] ?? 0);
-    $broker_status = intval($data['broker_status'] ?? 0);
+    if(!$stmt) throw new Exception("Prepare failed: " . $conn->error);
 
-    // Bind parameters
-    $stmt->bind_param("ssissssisdddddddii",
-        $txn_type,
-        $invoice_num,
-        $txn_number,
-        $txn_date,
-        $partyName,
-        $brokerName,
-        $notes,
-        $credit_days,
-        $due_date,
-        $cal1,
-        $cal2,
-        $cal3,
-        $brokerage_amt,
-        $gross_amt,
-        $tax,
-        $net_amount,
-        $party_status,
-        $broker_status
+    $stmt->bind_param("ssissssdisdddddddddddii",
+        $data['txn_type'], $invNum, $txnNum, $data['txn_date'], $partyName, $brokerName, $data['notes'],
+        $data['brokerage_pct'], $data['credit_days'], $data['due_date'], 
+        $data['cal1'], $data['cal2'], $data['cal3'],
+        $data['brokerage_amt'], $data['brokerage_amt_usd'], 
+        $data['gross_amt_local'], $data['gross_amt_usd'], 
+        $data['tax_local'], $data['tax_usd'], 
+        $data['net_amount_local'], $data['net_amount_usd'],
+        $data['party_status'], $data['broker_status']
     );
-
-    if (!$stmt->execute()) throw new Exception("Execute failed: " . $stmt->error);
+    
+    if(!$stmt->execute()) throw new Exception("Header execute failed: " . $stmt->error);
     $stmt->close();
 
-    // ---------------------------------------------------------
-    // D. Insert Invoice Items (FIXED BINDING)
-    // ---------------------------------------------------------
-    if (!empty($data['items']) && is_array($data['items'])) {
-        $sqlItems = "INSERT INTO invoice_items 
-            (invoice_id, currency, qty, rate_usd, rate_inr, conv_rate, 
-             base_amount_usd, base_amount_inr, adjusted_amount_usd, adjusted_amount_inr) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            
-        $stmt = $conn->prepare($sqlItems);
+    // 5. Items Insert
+    $stmt = $conn->prepare("INSERT INTO invoice_items 
+        (invoice_id, currency, qty, rate_usd, rate_local, conv_rate, 
+         base_amount_usd, base_amount_local, adjusted_amount_usd, adjusted_amount_local) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+    $p_id = $invNum;
+    $p_cur = ""; $p_qty = 0; $p_rusd = 0; $p_rloc = 0; $p_conv = 0;
+    $p_busd = 0; $p_bloc = 0; $p_ausd = 0; $p_aloc = 0;
+
+    $stmt->bind_param("ssdddddddd", $p_id, $p_cur, $p_qty, $p_rusd, $p_rloc, $p_conv, $p_busd, $p_bloc, $p_ausd, $p_aloc);
+
+    foreach ($data['items'] as $item) {
+        $p_cur = $item['cur'];
+        $p_qty = floatval($item['qty']);
+        $p_rusd = floatval($item['rateUsd']);
+        $p_rloc = floatval($item['rateLocal']);
+        $p_conv = floatval($item['convRate']);
+        $p_busd = floatval($item['baseUsd']);
+        $p_bloc = floatval($item['baseLocal']);
+        // Here we take the calculated adjusted amounts from JS
+        $p_ausd = floatval($item['adjUsd']); 
+        $p_aloc = floatval($item['adjLocal']);
         
-        // --- KEY FIX: Define variables first, Bind ONCE ---
-        $b_inv = $invoice_num;
-        $b_cur = "";
-        $b_qty = 0.0;
-        $b_rusd = 0.0;
-        $b_rinr = 0.0;
-        $b_conv = 0.0;
-        $b_busd = 0.0;
-        $b_binr = 0.0;
-        $b_ausd = 0.0;
-        $b_ainr = 0.0;
-        
-        $stmt->bind_param("ssdddddddd", 
-            $b_inv, $b_cur, $b_qty, $b_rusd, $b_rinr, 
-            $b_conv, $b_busd, $b_binr, $b_ausd, $b_ainr
-        );
-        
-        foreach ($data['items'] as $item) {
-            // Update variable values (Passed by reference automatically)
-            $b_cur = $item['cur'];
-            $b_qty = floatval($item['qty']);
-            $b_rusd = floatval($item['rateUsd']);
-            $b_rinr = floatval($item['rateInr']);
-            $b_conv = floatval($item['convRate'] ?? 0);
-            $b_busd = floatval($item['baseUsd'] ?? 0);
-            $b_binr = floatval($item['baseInr']);
-            $b_ausd = floatval($item['adjustedUsd'] ?? 0);
-            $b_ainr = floatval($item['adjustedInr']);
-            
-            if (!$stmt->execute()) throw new Exception("Item Insert Failed: " . $stmt->error);
-        }
-        $stmt->close();
+        if(!$stmt->execute()) throw new Exception("Item execute failed: " . $stmt->error);
     }
+    $stmt->close();
 
     $conn->commit();
-    echo json_encode(['success' => true, 'message' => 'Saved successfully']);
+    echo json_encode(['success' => true]);
 
 } catch (Exception $e) {
     if (isset($conn)) $conn->rollback();
-    error_log("Save Error: " . $e->getMessage());
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
-
-if (isset($conn)) $conn->close();
 ?>

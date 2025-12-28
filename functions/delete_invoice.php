@@ -1,7 +1,6 @@
 <?php
-error_reporting(0);
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
-
 if (ob_get_level()) ob_clean();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -20,48 +19,26 @@ try {
     
     $invoiceNum = $data['invoice_num'];
     
-    // Check if invoice exists
-    $stmt = $conn->prepare("SELECT txn_id FROM invoice_txn WHERE invoice_num = ? LIMIT 1");
-    $stmt->bind_param("s", $invoiceNum);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($result->num_rows === 0) {
-        throw new Exception('Invoice not found');
-    }
-    $stmt->close();
-    
-    // Delete invoice items first
+    // Delete items first (Foreign Key safety)
     $stmt = $conn->prepare("DELETE FROM invoice_items WHERE invoice_id = ?");
     $stmt->bind_param("s", $invoiceNum);
-    if (!$stmt->execute()) {
-        throw new Exception('Error deleting invoice items');
-    }
+    $stmt->execute();
     $stmt->close();
     
-    // Delete invoice
+    // Delete header
     $stmt = $conn->prepare("DELETE FROM invoice_txn WHERE invoice_num = ?");
     $stmt->bind_param("s", $invoiceNum);
-    if (!$stmt->execute()) {
-        throw new Exception('Error deleting invoice');
-    }
+    if (!$stmt->execute()) throw new Exception('Could not delete invoice');
+    
+    if ($stmt->affected_rows === 0) throw new Exception('Invoice not found');
+    
     $stmt->close();
     
     $conn->commit();
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'Invoice deleted successfully'
-    ]);
+    echo json_encode(['success' => true, 'message' => 'Deleted']);
     
 } catch (Exception $e) {
     $conn->rollback();
-    echo json_encode([
-        'success' => false,
-        'message' => $e->getMessage()
-    ]);
+    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
-
-$conn->close();
-exit;
 ?>

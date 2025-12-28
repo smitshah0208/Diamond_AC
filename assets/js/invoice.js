@@ -1,459 +1,376 @@
 let rows = [];
 
-/* ---------- Initialize ---------- */
 document.addEventListener('DOMContentLoaded', function() {
-    txnDate.valueAsDate = new Date();
+    console.log('✅ Invoice page loaded successfully');
+    
+    // --- 1. Initialize Default Values ---
+    const txnDate = document.getElementById('txnDate');
+    if(txnDate) txnDate.valueAsDate = new Date();
     calcDueDate();
-    
-    // Get invoice number immediately on page load
     getNextInvoiceNo();
-    
-    // Add event listeners for recalculation
-    [cal1, cal2, cal3, brokerPct, tax].forEach(input => {
-        input.addEventListener('input', render);
-    });
-});
 
-/* ---------- Get Next Invoice No from Database ---------- */
-function getNextInvoiceNo() {
-    const type = invType.value;
-    fetch('functions/get_invoice_no.php?type=' + type)
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                invNo.value = data.invoice_num;
+    // --- 2. Main Page Event Listeners ---
+    ['cal1', 'cal2', 'cal3', 'brokerPct', 'taxPct'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.addEventListener('input', render);
+    });
+
+    // --- 3. Autocomplete Setup ---
+    setupAutocomplete('party', 'partySug', 'functions/search_party.php');
+    setupAutocomplete('broker', 'brokerSug', 'functions/search_broker.php');
+
+    // --- 4. MODAL LOGIC ---
+    const mcur = document.getElementById('mcur');
+    if(mcur) {
+        mcur.addEventListener('change', function() {
+            const val = this.value;
+            const mrateUsd = document.getElementById('mrateUsd');
+            const mrateLocal = document.getElementById('mrateLocal');
+            const conv = document.getElementById('conv');
+            
+            // Clear values
+            mrateUsd.value = ''; mrateLocal.value = ''; conv.value = '';
+            document.getElementById('musd').value = '';
+            document.getElementById('mlocal').value = '';
+
+            // Toggle Fields
+            if(val === 'BOTH') {
+                unlockField('mrateUsd'); unlockField('conv'); lockField('mrateLocal');
+            } else if (val === 'LOCAL') {
+                lockField('mrateUsd'); lockField('conv'); unlockField('mrateLocal');
             } else {
-                console.error('Error getting invoice no:', data.message);
-                // Fallback
-                invNo.value = type + '-1001';
-            }
-        })
-        .catch(err => {
-            console.error('Error:', err);
-            invNo.value = type + '-1001';
-        });
-}
-
-invType.addEventListener('change', getNextInvoiceNo);
-
-/* ---------- Enhanced Autocomplete with Auto-Insert ---------- */
-function setupAutocomplete(input, suggestionBox, searchFile, onSelect) {
-    let selectedIndex = -1;
-    let timeout = null;
-    
-    input.addEventListener('input', function() {
-        const value = this.value.trim();
-        suggestionBox.innerHTML = '';
-        suggestionBox.classList.remove('active');
-        selectedIndex = -1;
-        
-        // Require minimum 2 characters
-        if (value.length < 2) return;
-        
-        // Debounce
-        clearTimeout(timeout);
-        timeout = setTimeout(() => {
-            fetch(searchFile + '?q=' + encodeURIComponent(value))
-                .then(res => res.json())
-                .then(data => {
-                    if (data.length === 0) {
-                        const div = document.createElement('div');
-                        div.className = 'autocomplete-item';
-                        div.style.color = '#999';
-                        div.innerHTML = '✨ No match found. Will create new entry on save.';
-                        suggestionBox.appendChild(div);
-                        suggestionBox.classList.add('active');
-                        return;
-                    }
-                    
-                    data.forEach((item, index) => {
-                        const div = document.createElement('div');
-                        div.className = 'autocomplete-item';
-                        div.innerHTML = `<strong>${item.name}</strong>`;
-                        div.onclick = () => {
-                            input.value = item.name;
-                            input.dataset.id = item.id;
-                            suggestionBox.innerHTML = '';
-                            suggestionBox.classList.remove('active');
-                            if (onSelect) onSelect(item);
-                        };
-                        suggestionBox.appendChild(div);
-                    });
-                    suggestionBox.classList.add('active');
-                })
-                .catch(err => console.error('Search error:', err));
-        }, 300);
-    });
-    
-    input.addEventListener('keydown', function(e) {
-        const items = suggestionBox.getElementsByClassName('autocomplete-item');
-        
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
-            updateSelection(items);
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            selectedIndex = Math.max(selectedIndex - 1, -1);
-            updateSelection(items);
-        } else if (e.key === 'Enter' && selectedIndex >= 0) {
-            e.preventDefault();
-            items[selectedIndex].click();
-        } else if (e.key === 'Escape') {
-            suggestionBox.innerHTML = '';
-            suggestionBox.classList.remove('active');
-        }
-    });
-    
-    function updateSelection(items) {
-        Array.from(items).forEach((item, index) => {
-            if (index === selectedIndex) {
-                item.classList.add('selected');
-            } else {
-                item.classList.remove('selected');
+                lockField('mrateUsd'); lockField('conv'); lockField('mrateLocal');
             }
         });
     }
-    
-    // Close on click outside
-    document.addEventListener('click', function(e) {
-        if (e.target !== input) {
-            suggestionBox.innerHTML = '';
-            suggestionBox.classList.remove('active');
-        }
+
+    // Modal Calculation Listeners
+    ['mqty', 'mrateUsd', 'mrateLocal', 'conv'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.addEventListener('input', calculateModalValues);
     });
-}
-
-// Setup autocomplete for Party
-setupAutocomplete(party, partySug, 'functions/search_party.php', function(item) {
-    console.log('Selected party:', item);
 });
 
-// Setup autocomplete for Broker
-setupAutocomplete(broker, brokerSug, 'functions/search_broker.php', function(item) {
-    console.log('Selected broker:', item);
-});
-
-/* ---------- Due Date Calculation ---------- */
-function calcDueDate() {
-    let d = new Date(txnDate.value || new Date());
-    d.setDate(d.getDate() + Number(credit.value || 0));
-    due.value = d.toISOString().split('T')[0];
+function unlockField(id) {
+    const el = document.getElementById(id);
+    if(el) { el.readOnly = false; el.disabled = false; el.style.backgroundColor = '#ffffff'; el.style.border = '1px solid #ccc'; }
 }
 
-credit.addEventListener('input', calcDueDate);
-txnDate.addEventListener('change', calcDueDate);
+function lockField(id) {
+    const el = document.getElementById(id);
+    if(el) { el.readOnly = true; el.style.backgroundColor = '#f0f0f0'; }
+}
 
-/* ---------- Modal Functions ---------- */
+function calculateModalValues() {
+    const cur = document.getElementById('mcur').value;
+    const qty = parseFloat(document.getElementById('mqty').value) || 0;
+    
+    if(cur === 'BOTH') {
+        const rUsd = parseFloat(document.getElementById('mrateUsd').value) || 0;
+        const c = parseFloat(document.getElementById('conv').value) || 0;
+        const amtUsd = parseFloat((qty * rUsd).toFixed(2));
+        document.getElementById('musd').value = amtUsd;
+        document.getElementById('mlocal').value = parseFloat((amtUsd * c).toFixed(2));
+        document.getElementById('mrateLocal').value = c > 0 ? (rUsd * c).toFixed(4) : 0;
+    } else if (cur === 'LOCAL') {
+        const rLoc = parseFloat(document.getElementById('mrateLocal').value) || 0;
+        document.getElementById('mlocal').value = parseFloat((qty * rLoc).toFixed(2));
+        document.getElementById('musd').value = 0;
+    }
+}
+
 function openModal() {
-    modal.style.display = 'block';
-    resetModal();
+    const modal = document.getElementById('modal');
+    if(modal) {
+        modal.style.display = 'block';
+        document.getElementById('mcur').value = '';
+        document.getElementById('mqty').value = '';
+        document.getElementById('musd').value = '';
+        document.getElementById('mlocal').value = '';
+        document.getElementById('mrateUsd').value = ''; lockField('mrateUsd');
+        document.getElementById('mrateLocal').value = ''; lockField('mrateLocal');
+        document.getElementById('conv').value = ''; lockField('conv');
+    }
 }
 
 function closeModal() {
-    modal.style.display = 'none';
+    const modal = document.getElementById('modal');
+    if(modal) modal.style.display = 'none';
 }
 
-function resetModal() {
-    [mqty, mrateUsd, mrateInr, conv, musd, minr].forEach(i => i.value = '');
-    mcur.value = '';
-    mrateUsd.disabled = true;
-    mrateInr.disabled = true;
-    conv.disabled = true;
-}
-
-mcur.addEventListener('change', function() {
-    let selectedValue = mcur.value;
-    [mqty, mrateUsd, mrateInr, conv, musd, minr].forEach(i => i.value = '');
-    mrateUsd.disabled = true;
-    mrateInr.disabled = true;
-    conv.disabled = true;
-    
-    if (selectedValue === 'BOTH') {
-        conv.disabled = false;
-        mrateUsd.disabled = false;
-    }
-    if (selectedValue === 'INR') {
-        mrateInr.disabled = false;
-    }
-});
-
-[mqty, mrateUsd, mrateInr, conv].forEach(i => i.addEventListener('input', calcModal));
-
-function calcModal() {
-    let q = parseFloat(mqty.value) || 0;
-    if (mcur.value === 'BOTH') {
-        let rUsd = parseFloat(mrateUsd.value) || 0;
-        let c = parseFloat(conv.value) || 0;
-        let rInr = rUsd * c;
-        mrateInr.value = rInr.toFixed(4);
-        musd.value = (q * rUsd).toFixed(2);
-        minr.value = (q * rInr).toFixed(2);
-    }
-    if (mcur.value === 'INR') {
-        let rInr = parseFloat(mrateInr.value) || 0;
-        musd.value = '';
-        minr.value = (q * rInr).toFixed(2);
-    }
-}
-
-/* ---------- Add Row ---------- */
 function addRow() {
-    if (!mcur.value) {
-        alert('Please select currency');
-        return;
-    }
-    if (!mqty.value || parseFloat(mqty.value) <= 0) {
-        alert('Please enter valid quantity');
-        return;
-    }
+    const mcur = document.getElementById('mcur');
+    const mqty = document.getElementById('mqty');
     
-    rows.push({
-        cur: mcur.value,
-        qty: parseFloat(mqty.value),
-        rateUsd: mcur.value === 'BOTH' ? parseFloat(mrateUsd.value) : 0,
-        rateInr: parseFloat(mrateInr.value),
-        convRate: mcur.value === 'BOTH' ? parseFloat(conv.value) : 0,
-        baseUsd: parseFloat(musd.value) || 0,
-        baseInr: parseFloat(minr.value)
-    });
+    if(!mcur || !mqty) return;
     
+    const currency = mcur.value;
+    const qty = parseFloat(mqty.value) || 0;
+    
+    if(!currency) { alert('❌ Please select a Currency!'); mcur.focus(); return; }
+    if(qty <= 0) { alert('❌ Please enter a valid Quantity!'); mqty.focus(); return; }
+    
+    const rUsd = parseFloat(document.getElementById('mrateUsd').value) || 0;
+    const rLoc = parseFloat(document.getElementById('mrateLocal').value) || 0;
+    const conv = parseFloat(document.getElementById('conv').value) || 0;
+    const amtUsd = parseFloat(document.getElementById('musd').value) || 0;
+    const amtLoc = parseFloat(document.getElementById('mlocal').value) || 0;
+    
+    if(currency === 'BOTH') {
+        if(rUsd <= 0) { alert('❌ Enter Rate $'); document.getElementById('mrateUsd').focus(); return; }
+        if(conv <= 0) { alert('❌ Enter Conversion Rate'); document.getElementById('conv').focus(); return; }
+    } else if(currency === 'LOCAL') {
+        if(rLoc <= 0) { alert('❌ Enter Local Rate'); document.getElementById('mrateLocal').focus(); return; }
+    }
+
+    const item = {
+        cur: currency,
+        qty: qty,
+        rateUsd: rUsd,
+        rateLocal: rLoc,
+        convRate: conv,
+        baseUsd: amtUsd,
+        baseLocal: amtLoc
+    };
+    
+    rows.push(item);
     closeModal();
     render();
 }
 
-/* ---------- Render Grid with Sequential Calculations ---------- */
 function render() {
-    let tb = grid.querySelector('tbody');
+    const tb = document.querySelector('#grid tbody');
+    if(!tb) return;
+    
     tb.innerHTML = '';
-    
-    // Get percentage values
-    const c1 = parseFloat(cal1.value) || 0;
-    const c2 = parseFloat(cal2.value) || 0;
-    const c3 = parseFloat(cal3.value) || 0;
-    const brokerPercent = parseFloat(brokerPct.value) || 0;
-    const taxPercent = parseFloat(tax.value) || 0;
-    
-    // Calculate adjusted amounts for each row
-    let totalAdjustedInr = 0;
-    
+
+    const getVal = (id) => parseFloat(document.getElementById(id)?.value || 0);
+    const c1 = getVal('cal1');
+    const c2 = getVal('cal2');
+    const c3 = getVal('cal3');
+    const bPct = getVal('brokerPct');
+    const tPct = getVal('taxPct');
+
+    let totBaseUsd = 0;
+    let totBaseLoc = 0;
+    let grandAdjUsd = 0;
+    let grandAdjLoc = 0;
+
     rows.forEach((r, i) => {
-        let adjustedUsd = 0;
-        let adjustedInr = 0;
+        totBaseUsd += r.baseUsd;
+        totBaseLoc += r.baseLocal;
         
-        if (r.cur === 'BOTH') {
-            // Start with base USD amount
-            adjustedUsd = r.baseUsd;
-            
-            // Apply cal1, cal2, cal3 sequentially to USD
-            if (c1 !== 0) {
-                adjustedUsd = adjustedUsd + (adjustedUsd * c1 / 100);
-            }
-            if (c2 !== 0) {
-                adjustedUsd = adjustedUsd + (adjustedUsd * c2 / 100);
-            }
-            if (c3 !== 0) {
-                adjustedUsd = adjustedUsd + (adjustedUsd * c3 / 100);
-            }
-            
-            // Convert adjusted USD to INR using conversion rate
-            adjustedInr = adjustedUsd * r.convRate;
-            
-        } else {
-            // INR Only - apply percentages directly to INR
-            adjustedInr = r.baseInr;
-            
-            if (c1 !== 0) {
-                adjustedInr = adjustedInr + (adjustedInr * c1 / 100);
-            }
-            if (c2 !== 0) {
-                adjustedInr = adjustedInr + (adjustedInr * c2 / 100);
-            }
-            if (c3 !== 0) {
-                adjustedInr = adjustedInr + (adjustedInr * c3 / 100);
-            }
-        }
+        // --- Calculate Adjusted Amount Per Row for Display ---
+        let adjUsd = r.baseUsd;
+        let adjLoc = r.baseLocal;
         
-        // Store adjusted values back to row
-        r.adjustedUsd = adjustedUsd;
-        r.adjustedInr = adjustedInr;
+        // Apply Cal1, Cal2, Cal3 sequentially/cumulatively
+        [c1, c2, c3].forEach(pct => {
+            if(pct) {
+                adjUsd += adjUsd * (pct / 100);
+                adjLoc += adjLoc * (pct / 100);
+            }
+        });
         
-        totalAdjustedInr += adjustedInr;
+        grandAdjUsd += adjUsd;
+        grandAdjLoc += adjLoc;
         
-        // Display row with adjusted amounts
-        tb.innerHTML += `
-        <tr>
-            <td>${r.cur}</td>
-            <td>${r.qty}</td>
-            <td>${r.rateUsd || '-'}</td>
-            <td>${r.rateInr.toFixed(4)}</td>
-            <td>${adjustedUsd > 0 ? adjustedUsd.toFixed(2) : '-'}</td>
-            <td>₹ ${adjustedInr.toFixed(2)}</td>
-            <td><button class="btn-delete" onclick="del(${i})">Delete</button></td>
-        </tr>`;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${r.cur}</strong></td>
+            <td>${r.qty.toFixed(2)}</td>
+            <td>${r.rateUsd > 0 ? r.rateUsd.toFixed(2) : '-'}</td>
+            <td>${r.rateLocal.toFixed(4)}</td>
+            <!-- Display Adjusted Amounts -->
+            <td><strong>${adjUsd.toFixed(2)}</strong></td>
+            <td><strong>${adjLoc.toFixed(2)}</strong></td>
+            <td><button class="btn-delete" onclick="deleteRow(${i})">Delete</button></td>
+        `;
+        tb.appendChild(tr);
     });
 
-    // Base Total (sum of all base amounts before adjustments)
-    let baseTotal = rows.reduce((sum, r) => sum + r.baseInr, 0);
-    document.getElementById('baseTotal').innerText = '₹ ' + baseTotal.toFixed(2);
-    
-    // Calculate overall totals with percentages for display
-    let displayAmount = baseTotal;
-    
-    if (c1 !== 0) {
-        displayAmount = displayAmount + (displayAmount * c1 / 100);
-    }
-    document.getElementById('cal1Display').innerText = c1.toFixed(2);
-    document.getElementById('afterCal1').innerText = '₹ ' + displayAmount.toFixed(2);
-    
-    if (c2 !== 0) {
-        displayAmount = displayAmount + (displayAmount * c2 / 100);
-    }
-    document.getElementById('cal2Display').innerText = c2.toFixed(2);
-    document.getElementById('afterCal2').innerText = '₹ ' + displayAmount.toFixed(2);
-    
-    if (c3 !== 0) {
-        displayAmount = displayAmount + (displayAmount * c3 / 100);
-    }
-    document.getElementById('cal3Display').innerText = c3.toFixed(2);
-    document.getElementById('afterCal3').innerText = '₹ ' + displayAmount.toFixed(2);
-    
-    // Gross Amount = Total of all adjusted amounts
-    const grossAmount = totalAdjustedInr;
-    grossInr.innerText = '₹ ' + grossAmount.toFixed(2);
-    
-    // Brokerage = calculated on Gross Amount but NOT added
-    const brokerageAmount = grossAmount * (brokerPercent / 100);
-    document.getElementById('brokerPctDisplay').innerText = brokerPercent.toFixed(2);
-    brokerAmt.innerText = '₹ ' + brokerageAmount.toFixed(2);
-    
-    // Tax Amount = calculated on Gross Amount
-    const taxAmount = grossAmount * (taxPercent / 100);
-    document.getElementById('taxDisplay').innerText = taxPercent.toFixed(2);
-    document.getElementById('taxAmt').innerText = '₹ ' + taxAmount.toFixed(2);
-    
-    // Net Amount = Gross + Tax (NO Brokerage)
-    const netAmount = grossAmount + taxAmount;
-    netInr.innerText = '₹ ' + netAmount.toFixed(2);
+    // Update Bottom Calculations
+    document.getElementById('baseTotalUsd').innerText = totBaseUsd.toFixed(2);
+    document.getElementById('baseTotalLocal').innerText = totBaseLoc.toFixed(2);
+
+    // Gross Amount is the sum of adjusted amounts
+    const gUsd = grandAdjUsd;
+    const gLoc = grandAdjLoc;
+
+    document.getElementById('grossUsd').innerText = gUsd.toFixed(2);
+    document.getElementById('grossLocal').innerText = gLoc.toFixed(2);
+
+    const bUsd = gUsd * bPct / 100;
+    const bLoc = gLoc * bPct / 100;
+    document.getElementById('brokerAmtUsd').innerText = bUsd.toFixed(2);
+    document.getElementById('brokerAmtLocal').innerText = bLoc.toFixed(2);
+
+    const tUsd = gUsd * tPct / 100;
+    const tLoc = gLoc * tPct / 100;
+    document.getElementById('taxAmtUsd').innerText = tUsd.toFixed(2);
+    document.getElementById('taxAmtLocal').innerText = tLoc.toFixed(2);
+
+    document.getElementById('netUsd').innerText = (gUsd + tUsd).toFixed(2);
+    document.getElementById('netLocal').innerText = (gLoc + tLoc).toFixed(2);
 }
 
-function del(i) {
-    if (confirm('Delete this item?')) {
+function deleteRow(i) {
+    if(confirm('Delete this item?')) {
         rows.splice(i, 1);
         render();
     }
 }
 
-/* ---------- Save Invoice with Auto-Insert Party/Broker ---------- */
 function saveInvoice() {
-    if (!party.value.trim()) {
-        alert('Please enter a party name');
-        return;
-    }
-    if (rows.length === 0) {
-        alert('Please add at least one item');
-        return;
-    }
+    const party = document.getElementById('party').value.trim();
+    const invNo = document.getElementById('invNo').value;
     
-    // Prepare items with adjusted amounts
-    const itemsToSave = rows.map(r => ({
-        cur: r.cur,
-        qty: r.qty,
-        rateUsd: r.rateUsd,
-        rateInr: r.rateInr,
-        convRate: r.convRate || 0,
-        baseUsd: r.baseUsd,
-        baseInr: r.baseInr,
-        adjustedUsd: r.adjustedUsd || 0,
-        adjustedInr: r.adjustedInr
-    }));
-    
-    const invoiceData = {
-        txn_type: invType.value,
-        invoice_num: invNo.value,
-        txn_date: txnDate.value,
-        credit_days: credit.value,
-        due_date: due.value,
-        party_name: party.value.trim(),
-        broker_name: broker.value.trim(),
-        notes: notes.value,
-        cal1: parseFloat(cal1.value) || 0,
-        cal2: parseFloat(cal2.value) || 0,
-        cal3: parseFloat(cal3.value) || 0,
-        brokerage_amt: parseFloat(brokerAmt.innerText.replace('₹ ', '').replace(',', '')),
-        gross_amt: parseFloat(grossInr.innerText.replace('₹ ', '').replace(',', '')),
-        tax: parseFloat(tax.value) || 0,
-        net_amount: parseFloat(netInr.innerText.replace('₹ ', '').replace(',', '')),
+    if(!party) { alert('❌ Please enter Party Name!'); document.getElementById('party').focus(); return; }
+    if(rows.length === 0) { alert('❌ Please add at least one invoice item!'); return; }
+
+    const getVal = (id) => parseFloat(document.getElementById(id)?.value || 0);
+    const c1 = getVal('cal1');
+    const c2 = getVal('cal2');
+    const c3 = getVal('cal3');
+
+    // --- Prepare Items with Adjusted Values for DB ---
+    const itemsToSend = rows.map(r => {
+        let aUsd = r.baseUsd;
+        let aLoc = r.baseLocal;
+        
+        // Re-calculate adjustment for saving
+        [c1, c2, c3].forEach(pct => {
+            if(pct) {
+                aUsd += aUsd * (pct / 100);
+                aLoc += aLoc * (pct / 100);
+            }
+        });
+
+        return {
+            ...r,
+            adjUsd: aUsd.toFixed(2),
+            adjLocal: aLoc.toFixed(2)
+        };
+    });
+
+    const data = {
+        txn_type: document.getElementById('invType').value,
+        invoice_num: invNo,
+        txn_date: document.getElementById('txnDate').value,
+        party_name: party,
+        broker_name: document.getElementById('broker').value,
+        notes: document.getElementById('notes').value,
+        credit_days: document.getElementById('credit').value,
+        due_date: document.getElementById('due').value,
+        cal1: document.getElementById('cal1').value,
+        cal2: document.getElementById('cal2').value,
+        cal3: document.getElementById('cal3').value,
+        brokerage_pct: document.getElementById('brokerPct').value,
+        tax_pct: document.getElementById('taxPct').value,
+        
+        gross_amt_local: document.getElementById('grossLocal').innerText,
+        gross_amt_usd: document.getElementById('grossUsd').innerText,
+        brokerage_amt: document.getElementById('brokerAmtLocal').innerText,
+        brokerage_amt_usd: document.getElementById('brokerAmtUsd').innerText,
+        tax_local: document.getElementById('taxAmtLocal').innerText,
+        tax_usd: document.getElementById('taxAmtUsd').innerText,
+        net_amount_local: document.getElementById('netLocal').innerText,
+        net_amount_usd: document.getElementById('netUsd').innerText,
+        
         party_status: 1,
-        broker_status: broker.value.trim() ? 1 : 0,
-        items: itemsToSave
+        broker_status: document.getElementById('broker').value ? 1 : 0,
+        items: itemsToSend // Send the items with calculated 'adjUsd/adjLocal'
     };
-    
-    // Show loading state
-    const saveBtn = event.target;
-    const originalText = saveBtn.innerHTML;
-    saveBtn.innerHTML = '⏳ Saving...';
-    saveBtn.disabled = true;
-    
+
+    const btn = event.target;
+    const originalText = btn.innerText;
+    btn.innerText = 'Saving...';
+    btn.disabled = true;
+
     fetch('functions/save_invoice.php', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(invoiceData)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
     })
-    .then(response => {
-        // Check if response is ok
-        if (!response.ok) {
-            throw new Error('Network response was not ok');
-        }
-        return response.text();
-    })
-    .then(text => {
-        console.log('Raw response:', text); // Debug log
-        
-        // Try to parse JSON
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (e) {
-            console.error('JSON Parse Error:', e);
-            console.error('Response text:', text);
-            throw new Error('Invalid JSON response from server');
-        }
-        
-        saveBtn.innerHTML = originalText;
-        saveBtn.disabled = false;
-        
-        if (data.success) {
-            alert('✅ Invoice saved successfully!\n\nInvoice No: ' + invoiceData.invoice_num + '\nNet Amount: ₹ ' + invoiceData.net_amount.toFixed(2));
+    .then(r => r.json())
+    .then(result => {
+        btn.innerText = originalText;
+        btn.disabled = false;
+        if(result.success) {
+            // Success message with Invoice Number
+            alert(`✅ Invoice ${invNo} has been saved successfully!`);
             resetForm();
         } else {
-            alert('❌ Error saving invoice: ' + (data.message || 'Unknown error'));
+            alert('❌ Error: ' + (result.message || 'Unknown error'));
         }
     })
     .catch(error => {
-        console.error('Error:', error);
-        saveBtn.innerHTML = originalText;
-        saveBtn.disabled = false;
-        alert('❌ Error saving invoice: ' + error.message + '\n\nCheck browser console for details.');
+        btn.innerText = originalText;
+        btn.disabled = false;
+        alert('❌ Error: ' + error.message);
     });
 }
 
 function resetForm() {
     rows = [];
     render();
-    party.value = '';
-    party.dataset.id = '';
-    broker.value = '';
-    broker.dataset.id = '';
-    notes.value = '';
-    credit.value = '0';
-    cal1.value = '0';
-    cal2.value = '0';
-    cal3.value = '0';
-    brokerPct.value = '0';
-    tax.value = '0';
-    getNextInvoiceNo();
+    document.getElementById('party').value = '';
+    document.getElementById('broker').value = '';
+    document.getElementById('notes').value = '';
+    ['cal1', 'cal2', 'cal3', 'brokerPct', 'taxPct'].forEach(id => document.getElementById(id).value = 0);
+    document.getElementById('credit').value = 0;
     calcDueDate();
+    getNextInvoiceNo();
+}
+
+function getNextInvoiceNo() {
+    const type = document.getElementById('invType').value;
+    fetch('functions/get_invoice_no.php?type=' + type)
+        .then(r => r.json())
+        .then(d => { if(d.success) document.getElementById('invNo').value = d.invoice_num; });
+}
+
+document.getElementById('invType').addEventListener('change', getNextInvoiceNo);
+
+function calcDueDate() {
+    const txnDate = new Date(document.getElementById('txnDate').value);
+    const credit = Number(document.getElementById('credit').value) || 0;
+    txnDate.setDate(txnDate.getDate() + credit);
+    document.getElementById('due').value = txnDate.toISOString().split('T')[0];
+}
+
+document.getElementById('credit').addEventListener('input', calcDueDate);
+document.getElementById('txnDate').addEventListener('change', calcDueDate);
+
+function setupAutocomplete(inputId, sugBoxId, phpFile) {
+    const inp = document.getElementById(inputId);
+    const box = document.getElementById(sugBoxId);
+    let timeout;
+    inp.addEventListener('input', function() {
+        const val = inp.value.trim();
+        box.innerHTML = '';
+        box.classList.remove('active');
+        if(val.length < 2) return;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            fetch(`${phpFile}?q=${encodeURIComponent(val)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if(!data || data.length === 0) return;
+                    box.classList.add('active');
+                    data.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'autocomplete-item';
+                        div.innerText = item.name;
+                        div.onclick = function() {
+                            inp.value = item.name;
+                            box.innerHTML = '';
+                            box.classList.remove('active');
+                        };
+                        box.appendChild(div);
+                    });
+                });
+        }, 300);
+    });
+    document.addEventListener('click', function(e) { if(e.target !== inp) { box.innerHTML = ''; box.classList.remove('active'); } });
 }

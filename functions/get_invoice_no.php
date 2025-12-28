@@ -1,20 +1,20 @@
 <?php
-// Disable all error output
-error_reporting(0);
+// File: functions/get_invoice_no.php
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
-// Set JSON header first
-header('Content-Type: application/json');
-
-// Clean output buffer
 if (ob_get_level()) ob_clean();
+header('Content-Type: application/json; charset=utf-8');
 
 try {
     include "../config/db.php";
     
-    $type = isset($_GET['type']) ? mysqli_real_escape_string($conn, $_GET['type']) : 'PU';
+    $type = isset($_GET['type']) ? $_GET['type'] : 'PU';
     
-    // Get the last txn_number for this specific type from database
+    // Ensure type is safe for SQL if not using prepared statement for it, 
+    // but here we use prepared statement so it's fine.
+    
+    // Get the last txn_number for this specific type
     $stmt = $conn->prepare("SELECT txn_number FROM invoice_txn WHERE txn_type = ? ORDER BY txn_number DESC LIMIT 1");
     
     if (!$stmt) {
@@ -29,11 +29,11 @@ try {
         // Increment the last number
         $nextNum = intval($row['txn_number']) + 1;
     } else {
-        // No previous invoice of this type found, start with 1001
+        // No previous invoice found, start with 1001
         $nextNum = 1001;
     }
     
-    // Generate invoice_num: PU-1001, SA-1001, etc.
+    // Generate invoice_num: PU-1001, SA-1001
     $invoiceNum = $type . '-' . $nextNum;
     
     echo json_encode([
@@ -52,6 +52,5 @@ try {
         'error' => $e->getMessage()
     ]);
 }
-
 exit;
 ?>

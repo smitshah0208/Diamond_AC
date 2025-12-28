@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // 2. Autocomplete Logic (Reusing your existing search files)
+    // 2. Autocomplete Logic
     let timeout = null;
     searchInput.addEventListener('input', function() {
         const val = this.value.trim();
@@ -49,12 +49,11 @@ document.addEventListener('DOMContentLoaded', function() {
             fetch(searchFile + '?q=' + encodeURIComponent(val))
                 .then(res => res.json())
                 .then(data => {
-                    if (data.length === 0) return;
+                    if (!data || data.length === 0) return;
                     data.forEach(item => {
                         const div = document.createElement('div');
                         div.className = 'autocomplete-item';
                         
-                        // Handle different API responses
                         let displayText = '';
                         let fillValue = '';
 
@@ -79,7 +78,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 300);
     });
 
-    // Close autocomplete on click outside
     document.addEventListener('click', e => {
         if (e.target !== searchInput) {
             searchSug.innerHTML = '';
@@ -87,7 +85,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 3. Search / Filter Submission
+    // 3. Search / Filter Submission (FIXED FETCH)
     filterForm.addEventListener('submit', function(e) {
         e.preventDefault();
 
@@ -96,7 +94,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const from = document.getElementById('fromDate').value;
         const to = document.getElementById('toDate').value;
 
-        // Validations
         if (type !== 'ALL' && term.length < 1) {
             alert("Please enter a search term.");
             return;
@@ -111,7 +108,16 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ type, term, from, to })
         })
-        .then(res => res.json())
+        .then(async res => {
+            // Check content type to see if we got JSON or error text
+            const text = await res.text();
+            try {
+                return JSON.parse(text);
+            } catch (err) {
+                console.error("Server Error:", text);
+                throw new Error("Server returned invalid JSON. See console for details.");
+            }
+        })
         .then(res => {
             btn.innerText = "🔍 Search Records";
             btn.disabled = false;
@@ -121,6 +127,11 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 alert("Error: " + res.message);
             }
+        })
+        .catch(err => {
+            btn.innerText = "🔍 Search Records";
+            btn.disabled = false;
+            alert("❌ System Error: " + err.message);
         });
     });
 
@@ -131,14 +142,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (rows.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="6" class="empty-row">No records found matching your criteria.</td></tr>';
-            totalDrEl.innerText = '₹ 0.00';
-            totalCrEl.innerText = '₹ 0.00';
+            totalDrEl.innerText = '0.00';
+            totalCrEl.innerText = '0.00';
             return;
         }
 
         rows.forEach(row => {
-            const dr = parseFloat(row.dr_inr);
-            const cr = parseFloat(row.cr_inr);
+            // Use correct column names from your database
+            const dr = parseFloat(row.dr_local || 0); 
+            const cr = parseFloat(row.cr_local || 0);
             sumDr += dr;
             sumCr += cr;
 
@@ -146,11 +158,12 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Format Particulars
             let particulars = row.description;
-            if(row.related_name) {
+            if(row.party_or_broker === 'TAX') {
+                particulars = `<strong style="color:#ea580c">TAX</strong> <span style="font-size:12px;color:#64748b">${row.description}</span>`;
+            } else if(row.related_name && row.party_or_broker !== 'GENERAL') {
                 particulars = `<strong style="color:#1e293b">${row.related_name}</strong> <span style="font-size:11px;color:#64748b">(${row.party_or_broker})</span><br><span style="font-size:12px;color:#64748b">${row.description}</span>`;
             }
 
-            // Format Invoice
             let invoice = row.invoice_num ? `<span style="font-weight:600;color:#2563eb">${row.invoice_num}</span>` : '-';
 
             const tr = document.createElement('tr');
@@ -159,13 +172,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td><span class="badge ${badgeClass}">${row.account_type}</span></td>
                 <td>${particulars}</td>
                 <td>${invoice}</td>
-                <td style="text-align:right; color:${dr>0?'#ef4444':'#cbd5e1'}">${dr > 0 ? '₹'+dr.toFixed(2) : '-'}</td>
-                <td style="text-align:right; color:${cr>0?'#10b981':'#cbd5e1'}">${cr > 0 ? '₹'+cr.toFixed(2) : '-'}</td>
+                <td style="text-align:right; color:${dr>0?'#ef4444':'#cbd5e1'}">${dr > 0 ? dr.toFixed(2) : '-'}</td>
+                <td style="text-align:right; color:${cr>0?'#10b981':'#cbd5e1'}">${cr > 0 ? cr.toFixed(2) : '-'}</td>
             `;
             tableBody.appendChild(tr);
         });
 
-        totalDrEl.innerText = '₹ ' + sumDr.toFixed(2);
-        totalCrEl.innerText = '₹ ' + sumCr.toFixed(2);
+        totalDrEl.innerText = sumDr.toFixed(2);
+        totalCrEl.innerText = sumCr.toFixed(2);
     }
 });

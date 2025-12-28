@@ -1,5 +1,6 @@
 <?php
-error_reporting(0);
+// File: functions/get_invoice.php
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
 if (ob_get_level()) ob_clean();
@@ -15,7 +16,7 @@ if (empty($invoiceNum)) {
 }
 
 try {
-    // Get invoice
+    // 1. Get Invoice Header
     $stmt = $conn->prepare("SELECT * FROM invoice_txn WHERE invoice_num = ? LIMIT 1");
     $stmt->bind_param("s", $invoiceNum);
     $stmt->execute();
@@ -29,8 +30,8 @@ try {
     $invoice = $result->fetch_assoc();
     $stmt->close();
     
-    // Get invoice items
-    $stmt = $conn->prepare("SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id");
+    // 2. Get Invoice Items
+    $stmt = $conn->prepare("SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id ASC");
     $stmt->bind_param("s", $invoiceNum);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -47,10 +48,10 @@ try {
         'items' => $items
     ]);
     
-    $conn->close();
-    
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
+
+if(isset($conn)) $conn->close();
 exit;
 ?>
