@@ -48,7 +48,7 @@ try {
     $stmt->bind_param("ssssssssddddd", 
         $data['txn_date'], 
         $data['account_type'],
-        $txnType, // Now Corrected (Dr=Payment, Cr=Receipt)
+        $txnType, 
         $invNum, 
         $pob, 
         $relName,

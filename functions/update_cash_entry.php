@@ -47,7 +47,7 @@ try {
     $stmt->bind_param("ssssssssdddddi", 
         $data['txn_date'], 
         $data['account_type'], 
-        $txnType, // Now Corrected
+        $txnType, 
         $invNum, 
         $pob, 
         $relName, 

@@ -22,7 +22,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const invSearch = document.getElementById('invSearch');
     const invSug = document.getElementById('invSug');
     const invEntityDisplay = document.getElementById('invEntityDisplay');
-    const invTaxInfo = document.getElementById('invTaxInfo');
 
     // Amounts
     const convRate = document.getElementById('convRate');
@@ -35,11 +34,9 @@ document.addEventListener('DOMContentLoaded', function () {
     let selectedRelatedName = "";
     let selectedPartyOrBroker = "";
     
-    // Temp Vars for Invoice
+    // Temp Vars for Invoice (These hold the names so we can switch back and forth)
     let invPartyName = "";
     let invBrokerName = "";
-    let invTaxUsd = 0;
-    let invTaxLocal = 0;
 
     txnDate.valueAsDate = new Date();
 
@@ -61,10 +58,8 @@ document.addEventListener('DOMContentLoaded', function () {
         selectedRelatedName = "";
         selectedPartyOrBroker = "";
         
-        // Reset Invoice Temp Data
-        invPartyName = ""; invBrokerName = ""; invTaxUsd = 0; invTaxLocal = 0;
+        invPartyName = ""; invBrokerName = ""; 
         invEntityDisplay.innerText = ""; invEntityDisplay.style.display = 'none';
-        invTaxInfo.style.display = 'none';
 
         payCurrency.value = 'Local';
         updateLocks(); 
@@ -105,32 +100,32 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
+    // --- FIX: Ensure this runs when radio buttons change ---
+    document.querySelectorAll('input[name="invLinkType"]').forEach(el => {
+        el.addEventListener('change', function() {
+            updateInvEntityDisplay();
+        });
+    });
+
     window.updateInvEntityDisplay = function () {
         const typeEl = document.querySelector('input[name="invLinkType"]:checked');
         if (!typeEl) return;
         const type = typeEl.value;
         let name = "";
 
-        invTaxInfo.style.display = 'none';
-
-        if (type === 'TAX') {
-            selectedPartyOrBroker = 'TAX';
-            selectedRelatedName = 'TAX';
-            name = "Tax Payment";
-            
-            invTaxInfo.style.display = 'block';
-            document.getElementById('txtTaxUsd').innerText = invTaxUsd > 0 ? `USD: $${invTaxUsd}` : "";
-            document.getElementById('txtTaxLocal').innerText = invTaxLocal > 0 ? `Local: ${invTaxLocal}` : "";
-        } else {
-            selectedPartyOrBroker = type;
-            if (editId.value && selectedRelatedName && selectedPartyOrBroker === type) {
-                name = selectedRelatedName;
-            } else {
-                if (type === 'PARTY') name = invPartyName;
-                if (type === 'BROKER') name = invBrokerName;
-            }
-            selectedRelatedName = name;
+        // STRICTLY use variables from Invoice Search (User cannot type here)
+        selectedPartyOrBroker = type;
+        
+        // If we are editing and haven't fetched new data yet, fallback to saved name
+        // BUT only if the saved type matches the current radio selection
+        if (editId.value && selectedRelatedName && !invPartyName && !invBrokerName) {
+             // This is a fallback, but the fetch in editRow should prevent us needing this often
         }
+
+        if (type === 'PARTY') name = invPartyName;
+        if (type === 'BROKER') name = invBrokerName;
+        
+        selectedRelatedName = name;
 
         if (!name) name = "(No Name Found)";
         invEntityDisplay.innerText = "Selected: " + name;
@@ -176,8 +171,9 @@ document.addEventListener('DOMContentLoaded', function () {
     invSearch.addEventListener('input', function () {
         const val = this.value.trim();
         invSug.innerHTML = ''; invSug.classList.remove('active');
-        invPartyName = ""; invBrokerName = ""; invTaxUsd=0; invTaxLocal=0;
-        invEntityDisplay.style.display = 'none'; invTaxInfo.style.display = 'none';
+        
+        invPartyName = ""; invBrokerName = ""; 
+        invEntityDisplay.style.display = 'none'; 
         document.querySelectorAll('input[name="invLinkType"]').forEach(r => r.checked = false);
 
         if (val.length < 2) return;
@@ -193,9 +189,8 @@ document.addEventListener('DOMContentLoaded', function () {
                         invSearch.value = i.invoice_num;
                         invPartyName = i.party_name;
                         invBrokerName = i.broker_name;
-                        invTaxUsd = parseFloat(i.tax_usd || 0);
-                        invTaxLocal = parseFloat(i.tax_local || 0);
 
+                        // Default select Party
                         document.querySelector('input[name="invLinkType"][value="PARTY"]').checked = true;
                         updateInvEntityDisplay();
                         invSug.innerHTML = ''; invSug.classList.remove('active');
@@ -272,10 +267,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (cat === 'INVOICE') {
             if (!invSearch.value) { alert('Select Invoice'); return; }
             const linkType = document.querySelector('input[name="invLinkType"]:checked');
-            if (!linkType) { alert('Select Payment For (Party/Broker/Tax)'); return; }
+            if (!linkType) { alert('Select Payment For (Party/Broker)'); return; }
             
             // STRICT CHECK
-            if ((!selectedRelatedName || selectedRelatedName === "(No Name Found)") && linkType.value !== 'TAX') {
+            if ((!selectedRelatedName || selectedRelatedName === "(No Name Found)")) {
                 alert('⚠️ The selected Invoice does not have a valid Name for this type.');
                 return;
             }
@@ -317,9 +312,8 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(data => {
             saveBtn.innerText = '💾 Save Transaction'; saveBtn.disabled = false;
             if (data.success) {
-                // If it was a new save, add ID and calculated type
                 formData.id = editId.value ? editId.value : data.id;
-                formData.transaction_type = data.txn_type; // Use backend calculated type
+                formData.transaction_type = data.txn_type; 
                 updateSessionTable(formData);
                 alert("✅ Saved!");
                 closeModal();
@@ -330,7 +324,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // ============================================
-    // EDIT & DELETE
+    // EDIT & DELETE (FIXED)
     // ============================================
     window.editRow = function (id) {
         const tr = document.getElementById(`row-${id}`);
@@ -346,23 +340,38 @@ document.addEventListener('DOMContentLoaded', function () {
         payCurrency.value = data.payment_currency || 'Local';
         
         if (data.invoice_num) {
+            // 1. Set Invoice Mode
             document.querySelector('input[name="txnCat"][value="INVOICE"]').checked = true;
             handleTxnCatChange();
+            
             invSearch.value = data.invoice_num;
             
-            if (data.party_or_broker === 'TAX') {
-                document.querySelector('input[name="invLinkType"][value="TAX"]').checked = true;
-                selectedPartyOrBroker = 'TAX';
-            } else {
-                const radio = document.querySelector(`input[name="invLinkType"][value="${data.party_or_broker}"]`);
-                if (radio) radio.checked = true;
-                selectedPartyOrBroker = data.party_or_broker;
-            }
+            // 2. Set the saved selection (Party or Broker)
+            const radio = document.querySelector(`input[name="invLinkType"][value="${data.party_or_broker}"]`);
+            if (radio) radio.checked = true;
+            
+            // 3. Set display temporarily (visual feedback)
+            selectedPartyOrBroker = data.party_or_broker;
             selectedRelatedName = data.related_name;
             invEntityDisplay.innerText = "Selected: " + data.related_name;
             invEntityDisplay.style.display = 'block';
             
+            // 4. CRITICAL FIX: Fetch underlying invoice data again
+            // This ensures if we switch from Party -> Broker, we know the Broker name.
+            fetch('functions/search_invoices.php?q=' + encodeURIComponent(data.invoice_num))
+            .then(r => r.json())
+            .then(results => {
+                const match = results.find(r => r.invoice_num === data.invoice_num);
+                if (match) {
+                    invPartyName = match.party_name;
+                    invBrokerName = match.broker_name;
+                    // Re-run display logic to ensure variables are synced
+                    updateInvEntityDisplay();
+                }
+            });
+
         } else {
+            // General Mode Logic
             document.querySelector('input[name="txnCat"][value="GENERAL"]').checked = true;
             handleTxnCatChange();
             if (data.party_or_broker === 'GENERAL') {
@@ -378,7 +387,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Fill Amounts & Locks
         convRate.value = parseFloat(data.conversion_rate) > 0 ? data.conversion_rate : '';
         drUsd.value = parseFloat(data.dr_usd) > 0 ? data.dr_usd : '';
         drLocal.value = parseFloat(data.dr_local) > 0 ? data.dr_local : '';
@@ -416,8 +424,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const acBadge = `<span style="background:${bgBadge}; color:${badgeColor}; padding:3px 8px; border-radius:10px; font-size:11px; font-weight:bold;">${data.account_type}</span>`;
 
         let particulars = data.description;
-        if(data.party_or_broker === 'TAX') particulars = `<strong style='color:#ea580c'>TAX PAYMENT</strong><br><small>${data.description}</small>`;
-        else if (data.related_name && data.party_or_broker !== 'GENERAL') {
+        if (data.related_name && data.party_or_broker !== 'GENERAL') {
              particulars = `<strong>${data.related_name}</strong> <small>(${data.party_or_broker})</small><br><small>${data.description}</small>`;
         }
 

@@ -11,7 +11,6 @@
         .sub-section { background: #f0f9ff; padding: 15px; border-radius: 8px; border: 1px solid #bae6fd; margin-bottom: 15px; display: none; }
         .sub-section.active { display: block; }
         .entity-display { font-weight: bold; color: #1e40af; background: #dbeafe; padding: 8px; border-radius: 4px; margin-top: 5px; display: none; }
-        .tax-display-box { margin-top:10px; padding:10px; background:#ffffff; border:1px solid #ddd; border-left: 4px solid #ea580c; display:none; }
     </style>
 </head>
 <body>
@@ -49,7 +48,6 @@
         <form id="txnForm">
             <input type="hidden" id="editId" value="">
 
-            <!-- Row 1: Date & Account Type -->
             <div class="form-grid">
                 <div><label>Date</label><input type="date" id="txnDate" required></div>
                 <div>
@@ -61,7 +59,6 @@
                 </div>
             </div>
 
-            <!-- Row 2: Category Selection -->
             <div class="radio-group">
                 <label class="radio-label">
                     <input type="radio" name="txnCat" value="GENERAL" checked onchange="handleTxnCatChange()"> 
@@ -73,7 +70,6 @@
                 </label>
             </div>
 
-            <!-- SECTION: GENERAL MODE -->
             <div id="generalSection" class="sub-section active">
                 <label style="color:#1e40af; margin-bottom:10px;">Link this transaction to (Optional):</label>
                 <div class="radio-group" style="background:white; border:1px solid #e5e7eb;">
@@ -89,7 +85,6 @@
                 </div>
             </div>
 
-            <!-- SECTION: INVOICE MODE -->
             <div id="invoiceSection" class="sub-section">
                 <div class="form-grid">
                     <div class="full-width autocomplete">
@@ -104,22 +99,12 @@
                     <div style="display:flex; gap:15px; margin-bottom:5px;">
                         <label class="radio-label"><input type="radio" name="invLinkType" value="PARTY" onchange="updateInvEntityDisplay()"> Party</label>
                         <label class="radio-label"><input type="radio" name="invLinkType" value="BROKER" onchange="updateInvEntityDisplay()"> Broker</label>
-                        <!-- Added Tax Option -->
-                        <label class="radio-label"><input type="radio" name="invLinkType" value="TAX" onchange="updateInvEntityDisplay()"> Tax</label>
                     </div>
                     
                     <div id="invEntityDisplay" class="entity-display"></div>
-                    
-                    <!-- New Tax Info Box -->
-                    <div id="invTaxInfo" class="tax-display-box">
-                        <strong>Tax Payable:</strong><br>
-                        <span id="txtTaxUsd"></span><br>
-                        <span id="txtTaxLocal"></span>
-                    </div>
                 </div>
             </div>
 
-            <!-- Description -->
             <div class="form-grid">
                 <div class="full-width">
                     <label>Description</label>
@@ -127,7 +112,6 @@
                 </div>
             </div>
 
-            <!-- New Payment Currency -->
             <div class="form-grid">
                 <div>
                     <label>Payment Currency</label>
