@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Dec 29, 2025 at 12:02 PM
+-- Generation Time: Dec 29, 2025 at 06:26 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -83,7 +83,34 @@ INSERT INTO `cash_bank_entries` (`id`, `txn_date`, `account_type`, `transaction_
 (5, '2025-12-29', 'Cash', 'Payment', 'SA-1001', 'BROKER', 'Varshish Shah', 'Paid Brokerage', 90.00, 220.50, 0.00, 19845.00, 0.00, 'Dollar', '2025-12-29 09:37:07'),
 (6, '2025-12-29', 'Bank', 'Receipt', 'SA-1001', 'PARTY', 'Rajat Jain', 'Received Sales Amount', 90.00, 0.00, 22491.00, 0.00, 2024190.00, 'Dollar', '2025-12-29 09:39:54'),
 (7, '2025-12-29', 'Cash', 'Payment', 'PU-1002', 'BROKER', 'Arpit Shah', 'Partial payment', 0.00, 0.00, 0.00, 5000.00, 0.00, 'Local', '2025-12-29 10:55:06'),
-(8, '2026-01-05', 'Cash', 'Payment', 'PU-1002', 'BROKER', 'Arpit Shah', 'Full payment made', 0.00, 0.00, 0.00, 5051.00, 0.00, 'Local', '2025-12-29 10:55:54');
+(8, '2026-01-05', 'Cash', 'Payment', 'PU-1002', 'BROKER', 'Arpit Shah', 'Full payment made', 0.00, 0.00, 0.00, 5051.00, 0.00, 'Local', '2025-12-29 10:55:54'),
+(10, '2025-12-29', 'Bank', 'Receipt', 'SA-1002', 'PARTY', 'Rajat Jain', 'Partial Payment Received', 0.00, 0.00, 0.00, 0.00, 1500000.00, 'Local', '2025-12-29 15:18:10');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `financial_openings`
+--
+
+CREATE TABLE `financial_openings` (
+  `id` int(11) NOT NULL,
+  `financial_year` varchar(20) DEFAULT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `op_stock_qty` decimal(15,2) DEFAULT 0.00,
+  `op_stock_val` decimal(15,2) DEFAULT 0.00,
+  `op_cash_local` decimal(15,2) DEFAULT 0.00,
+  `op_bank_local` decimal(15,2) DEFAULT 0.00,
+  `op_cash_usd` decimal(15,2) DEFAULT 0.00,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `financial_openings`
+--
+
+INSERT INTO `financial_openings` (`id`, `financial_year`, `start_date`, `end_date`, `op_stock_qty`, `op_stock_val`, `op_cash_local`, `op_bank_local`, `op_cash_usd`, `created_at`) VALUES
+(1, '2025-2026', '2025-04-01', '2026-03-31', 400.00, 5400000.00, 100000.00, 500000.00, 5000.00, '2025-12-29 16:09:49');
 
 -- --------------------------------------------------------
 
@@ -213,6 +240,13 @@ ALTER TABLE `cash_bank_entries`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indexes for table `financial_openings`
+--
+ALTER TABLE `financial_openings`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `financial_year` (`financial_year`);
+
+--
 -- Indexes for table `invoice_items`
 --
 ALTER TABLE `invoice_items`
@@ -251,7 +285,13 @@ ALTER TABLE `brokers`
 -- AUTO_INCREMENT for table `cash_bank_entries`
 --
 ALTER TABLE `cash_bank_entries`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+
+--
+-- AUTO_INCREMENT for table `financial_openings`
+--
+ALTER TABLE `financial_openings`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `invoice_items`
